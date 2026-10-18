@@ -124,3 +124,35 @@ pub fnc broadcast_add_f64_into(
   done
   return Ok(true);
 }
+
+
+// Same broadcast/indexing contract as addition, with multiplicative values.
+// Preflight must reject nonfinite intermediates before publishing any output.
+pub fnc broadcast_mul_f64_into(
+  TensorF64 left,
+  TensorF64 right,
+  List<int> output_shape,
+  List<float> mut output
+): Result<bool, String> {
+  if output is left.values || output is right.values; do
+    return Err("broadcast multiply output aliases input");
+  fi
+  val int n = count_floats(output);
+  if validate_broadcast(left, right, output_shape, n).is_err(); do
+    return Err("broadcast multiply shape or input invalid");
+  fi
+  for int i = 0; i < n; i++ do
+    val int a = input_offset_for_output(left.shape, output_shape, i);
+    val int b = input_offset_for_output(right.shape, output_shape, i);
+    val float value = left.values[a] * right.values[b];
+    if (value - value) != 0.0; do
+      return Err("nonfinite broadcast multiply result");
+    fi
+  done
+  for int i = 0; i < n; i++ do
+    val int a = input_offset_for_output(left.shape, output_shape, i);
+    val int b = input_offset_for_output(right.shape, output_shape, i);
+    output[i] = left.values[a] * right.values[b];
+  done
+  return Ok(true);
+}

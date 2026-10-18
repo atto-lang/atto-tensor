@@ -177,6 +177,9 @@ pub fnc matmul_2d_f64_into(
   TensorF64 right,
   List<float> mut output
 ): Result<bool, String> {
+  if output is left.values || output is right.values; do
+    return Err("matmul requires distinct output storage");
+  fi
   if validate_tensor(left).is_err(); do
     return Err("invalid left matrix");
   fi

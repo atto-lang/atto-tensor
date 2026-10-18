@@ -1,6 +1,6 @@
 import module Assert from "std/assert";
 import class TensorF64 from "../src/tensor";
-import fnc validate_broadcast, broadcast_add_f64_into from "../src/broadcast";
+import fnc validate_broadcast, broadcast_add_f64_into, broadcast_mul_f64_into from "../src/broadcast";
 import fnc validate_sum_to_shape, sum_to_shape_f64_checked_into from "../src/gradients";
 import fnc checked_numel, validate_tensor, add_f64_into, relu_f64_into, sum_f64, matmul_2d_f64_into from "../src/tensor";
 
@@ -34,6 +34,8 @@ pub routine main(): void {
   Assert.equal_throws(product[1], 22.0);
   Assert.equal_throws(product[2], 43.0);
   Assert.equal_throws(product[3], 50.0);
+  Assert.true_throws(matmul_2d_f64_into(left, right, left.values).is_err());
+  Assert.equal_throws(left.values[0], 1.0);
 
   val TensorF64 with_negatives = new TensorF64(arr[4], arr[-2.0, 0.0, 3.0, -1.0]);
   val List<float> activation = arr[0.0, 0.0, 0.0, 0.0];
@@ -50,6 +52,14 @@ pub routine main(): void {
   Assert.equal_throws(broadcast[2], 13.0);
   Assert.equal_throws(broadcast[3], 21.0);
   Assert.equal_throws(broadcast[5], 23.0);
+  val List<float> multiplied = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], multiplied).is_ok());
+  Assert.equal_throws(multiplied[0], 10.0);
+  Assert.equal_throws(multiplied[2], 30.0);
+  Assert.equal_throws(multiplied[3], 20.0);
+  Assert.equal_throws(multiplied[5], 60.0);
+  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], row.values).is_err());
+
 
   val TensorF64 scalar = new TensorF64(arr[], arr[5.0]);
   val List<float> scalar_output = arr[0.0, 0.0, 0.0];
@@ -86,6 +96,9 @@ pub routine main(): void {
     upstream, arr[], scalar_scratch, scalar_gradient
   ).is_ok());
   Assert.equal_throws(scalar_gradient[0], 21.0);
+  Assert.true_throws(sum_to_shape_f64_checked_into(upstream, arr[], scalar_scratch, scalar_scratch).is_err());
+  Assert.equal_throws(scalar_scratch[0], 21.0);
+  Assert.true_throws(broadcast_add_f64_into(col, row, arr[2, 3], row.values).is_err());
   stdio.println("ORES_ML_TENSOR_SMOKE_PASS");
   return;
 }
