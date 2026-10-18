@@ -10,6 +10,7 @@
 - `List<float>` is a current source-language stand-in. It does not assert verified f64 bits, contiguous buffers, or allocator/GC guarantees across all backends.
 - Class fields expose List references, and aliases can mutate them. The caller MUST NOT alias output buffers with inputs or mutate descriptors/data during operations. This is a **temporary precondition**, not a demonstrated borrow-checker safety guarantee.
 - `checked_numel` intentionally uses bounded repeated addition rather than potentially overflowing multiplication. This is a correctness reference, not a performance implementation.
+- P0 rejects nonfinite input values and preflights all arithmetic results before writing caller outputs; the matmul reference deliberately computes twice for this guarantee. Concurrent mutation of aliased List storage remains unsafe until the borrow checker proves exclusivity.
 - No generic `Tensor<T>`, dtype dispatch, striding, broadcasting, slicing, GPU, SIMD, autograd, or cross-backend execution claims yet.
 - IEEE exceptional values/overflow need separate normative tests and backend admission before release.
 
