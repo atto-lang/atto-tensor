@@ -60,10 +60,8 @@ pub routine main(): void {
   Assert.equal_throws(huge_dx[0], 17.0);
   Assert.equal_throws(huge_dw[0], 23.0);
 
-  // Mutable scratch/output cannot alias any input's backing storage.
-  Assert.true_throws(matmul_both_vjp_f64_checked_into(
-    input, weights, upstream, left_scratch, right_scratch, input.values, dw
-  ).is_err());
+  // Typed alias-prohibition cases belong in negative compiler fixtures;
+  // this positive runtime example must not fail to type-check intentionally.
   stdio.println("ORES_MATMUL_TWO_SIDED_VJP_PASS");
   return;
 }
