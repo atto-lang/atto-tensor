@@ -52,6 +52,14 @@ pub routine main(): void {
   Assert.equal_throws(broadcast[2], 13.0);
   Assert.equal_throws(broadcast[3], 21.0);
   Assert.equal_throws(broadcast[5], 23.0);
+  val List<float> multiplied = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], multiplied).is_ok());
+  Assert.equal_throws(multiplied[0], 10.0);
+  Assert.equal_throws(multiplied[2], 30.0);
+  Assert.equal_throws(multiplied[3], 20.0);
+  Assert.equal_throws(multiplied[5], 60.0);
+  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], row.values).is_err());
+
 
   val TensorF64 scalar = new TensorF64(arr[], arr[5.0]);
   val List<float> scalar_output = arr[0.0, 0.0, 0.0];
