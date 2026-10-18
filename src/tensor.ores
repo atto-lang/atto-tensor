@@ -106,6 +106,9 @@ pub fnc add_f64_into(
   TensorF64 right,
   List<float> mut output
 ): Result<bool, String> {
+  if output is left.values || output is right.values; do
+    return Err("aliased tensor output");
+  fi
   if validate_tensor(left).is_err(); do
     return Err("invalid left tensor");
   fi
