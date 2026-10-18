@@ -27,9 +27,8 @@ fnc count_floats(List<float> values): int {
   return count;
 }
 
-// Compute the shape product WITHOUT an unchecked integer multiply.
-// The bound is the actual storage length; repeated addition is a slow but
-// overflow-safe reference algorithm. A future checked-mul intrinsic replaces it.
+// Compute a bounded shape product in O(rank), with division before multiply.
+// No unchecked overflow or dimension-sized validation loops.
 pub fnc checked_numel(List<int> shape, int storage_length): Result<int, String> {
   if storage_length < 0; do
     return Err("negative storage length");
@@ -52,15 +51,12 @@ pub fnc checked_numel(List<int> shape, int storage_length): Result<int, String> 
 
   let int product = 1;
   for const dimension of shape do
-    let int expanded = 0;
-    for int i = 0; i < dimension; i++ do
-      // 0 <= expanded <= storage_length, so subtraction/addition stay in range.
-      if product > storage_length - expanded; do
-        return Err("tensor shape exceeds backing storage");
-      fi
-      expanded = expanded + product;
-    done
-    product = expanded;
+    // Division bounds the product before multiplication; product is always
+    // nonnegative and <= storage_length. This is O(rank), not O(numel).
+    if product > storage_length / dimension; do
+      return Err("tensor shape exceeds backing storage");
+    fi
+    product = product * dimension;
   done
   if product != storage_length; do
     return Err("tensor shape and storage length mismatch");
