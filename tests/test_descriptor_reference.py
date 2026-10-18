@@ -5,17 +5,18 @@ MAX_I64=(1<<63)-1
 def numel(shape):
     if type(shape) not in (tuple,list) or len(shape)>32:
         raise ValueError("invalid rank")
-    count=1
     for d in shape:
         if type(d) is not int or d<0 or d>MAX_I64:
             raise ValueError("invalid extent")
-        # Empty tensors consume no elements even if other extents are huge.
-        if d==0:
-            count=0
-        elif count and count>MAX_I64//d:
+    # Zero extents annihilate the product even when earlier extents would
+    # overflow if naively multiplied left-to-right.
+    if 0 in shape:
+        return 0
+    count=1
+    for d in shape:
+        if count>MAX_I64//d:
             raise ValueError("numel overflow")
-        else:
-            count*=d
+        count*=d
     return count
 
 def reachable_span(shape,strides,offset,storage):
@@ -42,6 +43,7 @@ class TensorDescriptorReferenceTests(unittest.TestCase):
     def test_scalar_and_zero_extent(self):
         self.assertEqual(numel(()),1)
         self.assertEqual(numel((7,0,11)),0)
+        self.assertEqual(numel((MAX_I64, MAX_I64, 0)),0)
         self.assertEqual(reachable_span((0,3),(3,1),0,0),None)
     def test_checked_shape_product(self):
         self.assertEqual(numel((3,4,5)),60)
