@@ -1,4 +1,4 @@
-name: Source contract (not compiler proof)
+name: Source-only gate (NOT compiler execution)
 on: [push, pull_request]
 permissions:
   contents: read
@@ -7,14 +7,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure native source and explicit test admission
+      - name: Verify explicit compiler admission fails closed
         run: |
+          set -eu
           test -s src/tensor.ores
           test -s tests/smoke.ores
           sh -n scripts/test.sh
-          if sh scripts/test.sh; then
-            echo "unexpected: test runner admitted without compiler" >&2
+          set +e
+          env -u ORESLANG_BIN sh scripts/test.sh
+          status=$?
+          set -e
+          if [ "$status" -ne 78 ]; then
+            echo "expected explicit UNCONFIGURED exit 78; got $status" >&2
             exit 1
-          else
-            echo "expected: real compiler unavailable; this is NOT guest conformance"
           fi
+          echo "SOURCE_ONLY_OK; no real Oreslang compiler was run"
