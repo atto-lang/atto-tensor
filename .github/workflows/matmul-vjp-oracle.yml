@@ -1,0 +1,29 @@
+name: Tensor matmul dual VJP oracle (host-only)
+on:
+  pull_request:
+    paths:
+      - "src/matmul_vjp.ores"
+      - "tests/matmul_two_sided_vjp_smoke.ores"
+      - "tests/matmul_two_sided_vjp_oracle.test.mjs"
+      - "scripts/test.sh"
+      - ".github/workflows/matmul-vjp-oracle.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  independent-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Independent dual-VJP checks
+        run: node --test tests/matmul_two_sided_vjp_oracle.test.mjs
+      - name: Shell syntax of fail-closed real guest runner
+        run: sh -n scripts/test.sh
+      - name: Evidence disclaimer
+        run: echo "HOST_ONLY; ORESLANG_MATMUL_GUEST=NOT_EXECUTED; BACKEND_PARITY=UNVERIFIED"
