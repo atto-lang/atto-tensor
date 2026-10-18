@@ -1,6 +1,7 @@
 import module Assert from "std/assert";
 import class TensorF64 from "../src/tensor";
 import fnc validate_broadcast, broadcast_add_f64_into from "../src/broadcast";
+import fnc validate_sum_to_shape, sum_to_shape_f64_checked_into from "../src/gradients";
 import fnc checked_numel, validate_tensor, add_f64_into, relu_f64_into, sum_f64, matmul_2d_f64_into from "../src/tensor";
 
 pub routine main(): void {
@@ -66,6 +67,25 @@ pub routine main(): void {
   Assert.true_throws(validate_broadcast(zero, row, arr[0, 3], 0).is_ok());
   Assert.true_throws(broadcast_add_f64_into(zero, row, arr[0, 3], empty_output).is_ok());
 
+  // Sum-to-shape must collapse the axes expanded during broadcasting.
+  val TensorF64 upstream = new TensorF64(
+    arr[2, 3], arr[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  );
+  val List<float> sum_scratch = arr[0.0, 0.0, 0.0];
+  val List<float> sum_result = arr[0.0, 0.0, 0.0];
+  Assert.true_throws(sum_to_shape_f64_checked_into(
+    upstream, arr[1, 3], sum_scratch, sum_result
+  ).is_ok());
+  Assert.equal_throws(sum_result[0], 5.0);
+  Assert.equal_throws(sum_result[1], 7.0);
+  Assert.equal_throws(sum_result[2], 9.0);
+  Assert.true_throws(validate_sum_to_shape(upstream, arr[3, 1], 3).is_err());
+  val List<float> scalar_scratch = arr[0.0];
+  val List<float> scalar_gradient = arr[0.0];
+  Assert.true_throws(sum_to_shape_f64_checked_into(
+    upstream, arr[], scalar_scratch, scalar_gradient
+  ).is_ok());
+  Assert.equal_throws(scalar_gradient[0], 21.0);
   stdio.println("ORES_ML_TENSOR_SMOKE_PASS");
   return;
 }
