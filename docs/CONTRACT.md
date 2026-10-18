@@ -20,3 +20,33 @@
 2. Enforce whole-buffer write loans and validate complete output before mutation; track cancellation and lifetime for device buffers.
 3. Bring `oreslang-data-science` numeric APIs into a shared layout contract instead of reimplementing BLAS.
 4. Execute `tests/smoke.ores` with an exact pinned real Java/Graal compiler. Then add LLVM and Wasm only when they compile the identical source.
+
+## P1 differentiable minibatch row operations (stacked draft, October 18, 2026)
+
+`src/row_batches.ores` adds three pure-Oreslang, CPU-only reference kernels:
+
+| API | Data/ML responsibility | Differentiable behavior |
+| --- | --- | --- |
+| `gather_rows_2d_f64_into(source, indices, output)` | DataLoader-style selected and reordered minibatches; repeated indices allowed | VJP via `gather_rows_vjp_f64_checked_into` |
+| `slice_rows_2d_f64_into(source, start, count, output)` | Contiguous, allocation-free batch copying | Equivalent gradient is scatter to contiguous source range (not yet exported as a separate VJP) |
+| `gather_rows_vjp_f64_checked_into(upstream, indices, source_shape, scratch, output)` | Reverse-mode gradient of row gather | **Sum** repeated-index contributions deterministically in index order |
+
+These operations keep training/data math out of individual actors. They can be executed between actor messages while the actor's sole `state { ... }` holds only immutable parameter-snapshot handles, activation/gradient ledgers and receipts. `with` declares effects; `using state.read` and `using state.write(critical ...)` acquire scoped state capabilities. No state loan remains live during a tensor kernel, backpressure wait, or message dispatch. This draft does not add another actor state field or a second lock mechanism.
+
+### Resource, shape, and failure guarantees
+
+- Source and upstream tensors use existing `validate_tensor` (finite values and checked row-major shapes).
+- Original and target extents are validated via `checked_numel`; bounds use `count > rows - start` rather than potentially overflowing `start + count`.
+- Invalid/negative indices, rank mismatch, source/output alias and undersized/oversized buffers return `Err`.
+- Gather and slice preflight all invalid inputs **before** writing even one output element.
+- VJP permits repeated sampled rows; accumulates in caller-owned scratch, checks every addition is finite and publishes public output only on successful completion. Scratch may be modified on failed accumulation.
+- Empty dataset, zero-feature tensor, and empty selections are legal when dimensions and storage agree.
+- No implicit GPU, allocation, I/O, device transfer, parallel execution, shared mutable alias, or cross-actor pointer export.
+- The current `List<float>` representation does NOT prove unique buffer loans, safe concurrent mutation, an actual f64 ABI or `no_std` freestanding compatibility. Those require compiler/runtime evidence.
+
+### Test evidence and promotion gate
+
+- `tests/row_batches_smoke.ores` is the guest acceptance fixture. `scripts/test.sh` now invokes both existing tensor smoke and this fixture **only when `ORESLANG_BIN` is an explicitly supplied real Oreslang executable**, otherwise it exits UNCONFIGURED (78).
+- `tests/row_batches_contract.test.mjs` executes 8 host-side tests with an independent Node-compatible numerical oracle, seeded randomized adjoint identities and central finite-difference gradients. It is `HOST_ONLY`; test source presence cannot be called guest compilation.
+- Promotion requires pinned exact-tree Java/Graal guest execution, comparison of golden marker/output, negative alias/shape tests, numeric gradient evidence from actual Oreslang, and native LLVM compilation/sanitizers when the backend supports the same source. CI without a runner is NOT evidence of success.
+- Combine these row operations with autograd's tensor graph VJP, then train on small deterministic multi-batch datasets, and only after that introduce pipeline-scheduled execution with bounded mailbox/byte credits, cancellation and version fencing.
