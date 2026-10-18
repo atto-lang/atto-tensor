@@ -7,7 +7,7 @@ import class TensorF64 from './tensor';
 import fnc validate_tensor, checked_numel from './tensor';
 
 fnc count_ints(List<int> xs): int {
-  let n = 0;
+  let int n = 0;
   for const x of xs do
     n = n + 1;
   done
@@ -15,7 +15,7 @@ fnc count_ints(List<int> xs): int {
 }
 
 fnc count_floats(List<float> xs): int {
-  let n = 0;
+  let int n = 0;
   for const x of xs do
     n = n + 1;
   done
