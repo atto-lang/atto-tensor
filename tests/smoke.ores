@@ -88,6 +88,9 @@ pub routine main(): void {
     upstream, arr[], scalar_scratch, scalar_gradient
   ).is_ok());
   Assert.equal_throws(scalar_gradient[0], 21.0);
+  Assert.true_throws(sum_to_shape_f64_checked_into(upstream, arr[], scalar_scratch, scalar_scratch).is_err());
+  Assert.equal_throws(scalar_scratch[0], 21.0);
+  Assert.true_throws(broadcast_add_f64_into(col, row, arr[2, 3], row.values).is_err());
   stdio.println("ORES_ML_TENSOR_SMOKE_PASS");
   return;
 }
