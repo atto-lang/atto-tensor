@@ -92,3 +92,29 @@ test("bad shapes or overflow fail and do not publish output",()=>{
   }
   assert.throws(()=>dualVjp([1],[2],[NaN],1,1,1),/NONFINITE_INPUT/);
 });
+
+
+test("right-only VJP overflow still leaves both public outputs untouched",()=>{
+  const a=[1e308],b=[0],upstream=[1e308];
+  const leftResult=upstream[0]*b[0];
+  const rightResult=a[0]*upstream[0];
+  assert.equal(leftResult,0);
+  assert(!Number.isFinite(rightResult));
+  const publishedLeft=[41],publishedRight=[42];
+  assert.throws(()=>dualVjp(a,b,upstream,1,1,1),/NONFINITE_DB/);
+  assert.deepEqual(publishedLeft,[41]);
+  assert.deepEqual(publishedRight,[42]);
+  assert.match(fixture,/right_only_da\[0\],41\.0/);
+  assert.match(fixture,/right_only_db\[0\],42\.0/);
+});
+test("matrix VJP rejects 2-output alias and alias to each input backing",()=>{
+  assert.match(source,/left_scratch is right_gradient/);
+  assert.match(source,/right_scratch is left_gradient/);
+  assert.match(source,/left_gradient is left.values/);
+  assert.match(source,/right_gradient is right.values/);
+  assert.match(source,/right_scratch is upstream.values/);
+  const finishLeft=source.indexOf("left_gradient[i]=left_scratch[i]");
+  const finishRight=source.indexOf("right_gradient[i]=right_scratch[i]");
+  const checkRight=source.indexOf('return Err("matmul VJP nonfinite right gradient")');
+  assert(finishLeft>checkRight&&finishRight>finishLeft);
+});
