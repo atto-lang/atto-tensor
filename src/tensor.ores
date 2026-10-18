@@ -139,6 +139,9 @@ pub fnc relu_f64_into(
   TensorF64 source,
   List<float> mut output
 ): Result<bool, String> {
+  if output is source.values; do
+    return Err("relu output aliases input storage");
+  fi
   if validate_tensor(source).is_err(); do
     return Err("invalid relu input");
   fi
