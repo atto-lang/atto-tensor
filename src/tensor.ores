@@ -6,6 +6,11 @@ define pub class TensorF64 as
   pub val List<float> values;
 end
 
+// Finite-only P0 semantics; never silently turn NaN into zero in ReLU.
+fnc finite_f64(float value): bool {
+  return (value - value) == 0.0;
+}
+
 fnc count_ints(List<int> values): int {
   let int count = 0;
   for const value of values do
@@ -71,6 +76,11 @@ pub fnc validate_tensor(TensorF64 tensor): Result<bool, String> {
   if size.is_err(); do
     return Err("invalid contiguous tensor descriptor");
   fi
+  for const value of tensor.values do
+    if !finite_f64(value); do
+      return Err("tensor contains nonfinite values");
+    fi
+  done
   return Ok(true);
 }
 
@@ -109,6 +119,13 @@ pub fnc add_f64_into(
   if count_floats(output) != length; do
     return Err("add output length mismatch");
   fi
+  // Preflight every arithmetic result so overflow does not cause a
+  // partially-written output. Reference kernel deliberately does two passes.
+  for int i = 0; i < length; i++ do
+    if !finite_f64(left.values[i] + right.values[i]); do
+      return Err("nonfinite add result");
+    fi
+  done
   for int i = 0; i < length; i++ do
     output[i] = left.values[i] + right.values[i];
   done
@@ -144,6 +161,9 @@ pub fnc sum_f64(TensorF64 source): Result<float, String> {
   let float result = 0.0;
   for const value of source.values do
     result = result + value;
+    if !finite_f64(result); do
+      return Err("nonfinite sum result");
+    fi
   done
   return Ok(result);
 }
@@ -178,6 +198,21 @@ pub fnc matmul_2d_f64_into(
   if size.is_err(); do
     return Err("matmul output shape mismatch");
   fi
+  // Validate every candidate before the first mutation. The reference
+  // implementation recomputes instead of allocating temporary storage.
+  for int row = 0; row < rows; row++ do
+    for int column = 0; column < cols; column++ do
+      let float candidate = 0.0;
+      for int k = 0; k < inner; k++ do
+        candidate = candidate + (
+          left.values[(row * inner) + k] * right.values[(k * cols) + column]
+        );
+        if !finite_f64(candidate); do
+          return Err("nonfinite matmul result");
+        fi
+      done
+    done
+  done
   for int row = 0; row < rows; row++ do
     for int column = 0; column < cols; column++ do
       let float accumulator = 0.0;
