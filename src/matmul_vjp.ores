@@ -1,0 +1,123 @@
+// Pure Oreslang CPU reference for dA and dB of C = A @ B.
+// A is [M,K], B is [K,N], upstream is dC [M,N].
+// dA[i,k] = sum_j upstream[i,j]*B[k,j]
+// dB[k,j] = sum_i A[i,k]*upstream[i,j]
+//
+// Mutates caller-owned scratch (not output) before final publication. On any
+// shape, alias, nonfinite or arithmetic failure, BOTH public output buffers
+// remain unchanged. This does NOT grant sendable/immutable tensor ownership
+// or actor-state access; only verified actor loans may publish model weights.
+import class TensorF64 from './tensor';
+import fnc validate_tensor, checked_numel from './tensor';
+
+fnc num_floats(List<float> items): int {
+  let int n=0;
+  for const item of items do
+    n=n+1;
+  done
+  return n;
+}
+fnc num_ints(List<int> items): int {
+  let int n=0;
+  for const item of items do
+    n=n+1;
+  done
+  return n;
+}
+fnc finite_checked(float value): bool {
+  return (value-value)==0.0;
+}
+
+pub fnc matmul_2d_vjp_f64_checked_into(
+  TensorF64 left,
+  TensorF64 right,
+  TensorF64 upstream,
+  List<float> mut left_scratch,
+  List<float> mut right_scratch,
+  List<float> mut left_gradient,
+  List<float> mut right_gradient
+): Result<bool, String> {
+  // Outputs and scratch all have distinct storage; they cannot alias any
+  // input or each other. Borrow enforcement should prove disjointness too.
+  if left_scratch is right_scratch
+      || left_scratch is left_gradient || left_scratch is right_gradient
+      || right_scratch is left_gradient || right_scratch is right_gradient
+      || left_gradient is right_gradient; do
+    return Err("matmul VJP output/scratch buffers overlap");
+  fi
+  if left_scratch is left.values || left_scratch is right.values
+      || left_scratch is upstream.values
+      || right_scratch is left.values || right_scratch is right.values
+      || right_scratch is upstream.values
+      || left_gradient is left.values || left_gradient is right.values
+      || left_gradient is upstream.values
+      || right_gradient is left.values || right_gradient is right.values
+      || right_gradient is upstream.values; do
+    return Err("matmul VJP output aliases input tensors");
+  fi
+  if validate_tensor(left).is_err() || validate_tensor(right).is_err()
+      || validate_tensor(upstream).is_err(); do
+    return Err("matmul VJP invalid input tensor");
+  fi
+  if num_ints(left.shape) != 2 || num_ints(right.shape) != 2
+      || num_ints(upstream.shape) != 2; do
+    return Err("matmul VJP requires rank-2 tensors");
+  fi
+  val int rows=left.shape[0];
+  val int inner=left.shape[1];
+  val int columns=right.shape[1];
+  if inner != right.shape[0]
+      || upstream.shape[0] != rows || upstream.shape[1] != columns; do
+    return Err("matmul VJP incompatible matrix dimensions");
+  fi
+  if checked_numel(left.shape,num_floats(left_gradient)).is_err()
+      || checked_numel(right.shape,num_floats(right_gradient)).is_err(); do
+    return Err("matmul VJP gradient output shape mismatch");
+  fi
+  if num_floats(left_scratch) != num_floats(left_gradient)
+      || num_floats(right_scratch) != num_floats(right_gradient); do
+    return Err("matmul VJP scratch shape mismatch");
+  fi
+
+  // Staging dA. Arithmetic may alter left_scratch on failure, but neither
+  // public gradient output is touched.
+  for int i=0; i<rows; i++ do
+    for int k=0; k<inner; k++ do
+      let float gradient=0.0;
+      for int j=0; j<columns; j++ do
+        val float next=gradient+
+            (upstream.values[(i*columns)+j]*right.values[(k*columns)+j]);
+        if !finite_checked(next); do
+          return Err("matmul VJP nonfinite left gradient");
+        fi
+        gradient=next;
+      done
+      left_scratch[(i*inner)+k]=gradient;
+    done
+  done
+  // Staging dB separately. Even if this fails, the left public output is
+  // still unchanged, enforcing an all-or-nothing two-gradient publication.
+  for int k=0; k<inner; k++ do
+    for int j=0; j<columns; j++ do
+      let float gradient=0.0;
+      for int i=0; i<rows; i++ do
+        val float next=gradient+
+            (left.values[(i*inner)+k]*upstream.values[(i*columns)+j]);
+        if !finite_checked(next); do
+          return Err("matmul VJP nonfinite right gradient");
+        fi
+        gradient=next;
+      done
+      right_scratch[(k*columns)+j]=gradient;
+    done
+  done
+
+  // No possible arithmetic failure beyond this point; publish both results.
+  for int i=0; i<num_floats(left_gradient); i++ do
+    left_gradient[i]=left_scratch[i];
+  done
+  for int i=0; i<num_floats(right_gradient); i++ do
+    right_gradient[i]=right_scratch[i];
+  done
+  return Ok(true);
+}
