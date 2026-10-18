@@ -66,6 +66,24 @@ pub routine main(): void {
   Assert.equal_throws(tiny_da[0],73.0);
   Assert.equal_throws(tiny_db[0],74.0);
 
+  // Right-side-only overflow: dA = upstream * 0 stays finite, while
+  // dB = huge left * huge upstream overflows AFTER left scratch succeeds.
+  // Both public outputs must remain at their original sentinel values.
+  val TensorF64 right_only_left = new TensorF64(arr[1,1],arr[1.0e308]);
+  val TensorF64 right_only_right = new TensorF64(arr[1,1],arr[0.0]);
+  val TensorF64 right_only_upstream = new TensorF64(arr[1,1],arr[1.0e308]);
+  val List<float> right_only_a_scratch = arr[0.0];
+  val List<float> right_only_b_scratch = arr[0.0];
+  val List<float> right_only_da = arr[41.0];
+  val List<float> right_only_db = arr[42.0];
+  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
+    right_only_left,right_only_right,right_only_upstream,
+    right_only_a_scratch,right_only_b_scratch,
+    right_only_da,right_only_db
+  ).is_err());
+  Assert.equal_throws(right_only_da[0],41.0);
+  Assert.equal_throws(right_only_db[0],42.0);
+
   // Disjoint empty output buffers are valid with zero-inner-dimension shape.
   val TensorF64 empty_left = new TensorF64(arr[3,0],arr[]);
   val TensorF64 empty_right = new TensorF64(arr[0,2],arr[]);
