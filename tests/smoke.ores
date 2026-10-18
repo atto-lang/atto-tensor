@@ -18,6 +18,8 @@ pub routine main(): void {
   Assert.equal_throws(sums[0], 6.0);
   Assert.equal_throws(sums[3], 12.0);
 
+  Assert.true_throws(add_f64_into(left, right, left.values).is_err());
+  Assert.equal_throws(left.values[0], 1.0);
   val List<float> bad_output = arr[17.0];
   Assert.true_throws(add_f64_into(left, right, bad_output).is_err());
   Assert.equal_throws(bad_output[0], 17.0);
