@@ -34,6 +34,8 @@ pub routine main(): void {
   Assert.equal_throws(product[1], 22.0);
   Assert.equal_throws(product[2], 43.0);
   Assert.equal_throws(product[3], 50.0);
+  Assert.true_throws(matmul_2d_f64_into(left, right, left.values).is_err());
+  Assert.equal_throws(left.values[0], 1.0);
 
   val TensorF64 with_negatives = new TensorF64(arr[4], arr[-2.0, 0.0, 3.0, -1.0]);
   val List<float> activation = arr[0.0, 0.0, 0.0, 0.0];
