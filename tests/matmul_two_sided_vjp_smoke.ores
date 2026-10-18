@@ -1,0 +1,69 @@
+// Real Oreslang compiler acceptance target for both-side 2D matmul VJP.
+import module Assert from "std/assert";
+import class TensorF64 from "../src/tensor";
+import fnc matmul_both_vjp_f64_checked_into from "../src/matmul_vjp";
+
+pub routine main(): void {
+  val TensorF64 input = new TensorF64(
+    arr[2, 2], arr[1.0, 2.0, 3.0, 4.0]
+  );
+  val TensorF64 weights = new TensorF64(
+    arr[2, 2], arr[5.0, 6.0, 7.0, 8.0]
+  );
+  val TensorF64 upstream = new TensorF64(
+    arr[2, 2], arr[1.0, 2.0, 3.0, 4.0]
+  );
+  val List<float> left_scratch = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> right_scratch = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> dx = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> dw = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(matmul_both_vjp_f64_checked_into(
+    input, weights, upstream, left_scratch, right_scratch, dx, dw
+  ).is_ok());
+  Assert.equal_throws(dx[0], 17.0);
+  Assert.equal_throws(dx[1], 23.0);
+  Assert.equal_throws(dx[2], 39.0);
+  Assert.equal_throws(dx[3], 53.0);
+  Assert.equal_throws(dw[0], 10.0);
+  Assert.equal_throws(dw[1], 14.0);
+  Assert.equal_throws(dw[2], 14.0);
+  Assert.equal_throws(dw[3], 20.0);
+
+  // Shapes fail closed: both destination buffers remain untouched.
+  val TensorF64 bad_upstream = new TensorF64(
+    arr[1, 4], arr[1.0, 2.0, 3.0, 4.0]
+  );
+  Assert.true_throws(matmul_both_vjp_f64_checked_into(
+    input, weights, bad_upstream, left_scratch, right_scratch, dx, dw
+  ).is_err());
+  Assert.equal_throws(dx[0], 17.0);
+  Assert.equal_throws(dw[0], 10.0);
+
+  // Nonfinite second-side accumulation leaves the published dX untouched.
+  val TensorF64 huge_left = new TensorF64(
+    arr[1, 1], arr[1.0e308]
+  );
+  val TensorF64 huge_weight = new TensorF64(
+    arr[1, 1], arr[1.0]
+  );
+  val TensorF64 huge_upstream = new TensorF64(
+    arr[1, 1], arr[1.0e308]
+  );
+  val List<float> huge_dx_scratch = arr[0.0];
+  val List<float> huge_dw_scratch = arr[0.0];
+  val List<float> huge_dx = arr[17.0];
+  val List<float> huge_dw = arr[23.0];
+  Assert.true_throws(matmul_both_vjp_f64_checked_into(
+    huge_left, huge_weight, huge_upstream,
+    huge_dx_scratch, huge_dw_scratch, huge_dx, huge_dw
+  ).is_err());
+  Assert.equal_throws(huge_dx[0], 17.0);
+  Assert.equal_throws(huge_dw[0], 23.0);
+
+  // Mutable scratch/output cannot alias any input's backing storage.
+  Assert.true_throws(matmul_both_vjp_f64_checked_into(
+    input, weights, upstream, left_scratch, right_scratch, input.values, dw
+  ).is_err());
+  stdio.println("ORES_MATMUL_TWO_SIDED_VJP_PASS");
+  return;
+}
