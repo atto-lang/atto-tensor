@@ -1,7 +1,7 @@
 // Pure-Oreslang CPU reference: f64 *logical* tensor with contiguous row-major data.
 // Current List<float> storage is NOT a proven immutable/unique buffer. Borrow and
 // device-lease enforcement are compiler/runtime dependencies, not library claims.
-define class TensorF64 as
+define pub class TensorF64 as
   pub val List<int> shape;
   pub val List<float> values;
 end
