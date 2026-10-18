@@ -4,7 +4,8 @@ import {readFileSync} from "node:fs";
 const c=JSON.parse(readFileSync(new URL("../integration/contract.v1.json",import.meta.url),"utf8"));
 test("contract identifies exactly one source organization/repository",()=>{
  assert.equal(c.schemaVersion,1);assert.equal(c.organization,"ores-truffle-oreslang");
- assert.equal(c.repository,process.env.npm_package_name.replace(/^@oreslang\//,""));
+ const pkg=JSON.parse(readFileSync(new URL("../package.json",import.meta.url),"utf8"));
+ assert.equal(c.repository,pkg.name.replace(/^@oreslang\//,""));
  assert.match(c.mainSnapshotSha,/^[a-f0-9]{40}$/);
 });
 test("published interface IDs and upstream edges are unique and canonical",()=>{
