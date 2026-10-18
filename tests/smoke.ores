@@ -1,6 +1,6 @@
 import module Assert from "std/assert";
 import class TensorF64 from "../src/tensor";
-import fnc validate_broadcast, broadcast_add_f64_into from "../src/broadcast";
+import fnc validate_broadcast, broadcast_add_f64_into, broadcast_mul_f64_into from "../src/broadcast";
 import fnc validate_sum_to_shape, sum_to_shape_f64_checked_into from "../src/gradients";
 import fnc checked_numel, validate_tensor, add_f64_into, relu_f64_into, sum_f64, matmul_2d_f64_into from "../src/tensor";
 
