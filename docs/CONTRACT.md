@@ -50,3 +50,14 @@ These operations keep training/data math out of individual actors. They can be e
 - `tests/row_batches_contract.test.mjs` executes 8 host-side tests with an independent Node-compatible numerical oracle, seeded randomized adjoint identities and central finite-difference gradients. It is `HOST_ONLY`; test source presence cannot be called guest compilation.
 - Promotion requires pinned exact-tree Java/Graal guest execution, comparison of golden marker/output, negative alias/shape tests, numeric gradient evidence from actual Oreslang, and native LLVM compilation/sanitizers when the backend supports the same source. CI without a runner is NOT evidence of success.
 - Combine these row operations with autograd's tensor graph VJP, then train on small deterministic multi-batch datasets, and only after that introduce pipeline-scheduled execution with bounded mailbox/byte credits, cancellation and version fencing.
+
+
+## P1 checked two-sided matmul VJP (stacked draft)
+
+`src/matmul_vjp.ores` adds pure-Oreslang `matmul_both_vjp_f64_checked_into(X[M,K], W[K,N], dY[M,N], left_scratch, right_scratch, dX_out, dW_out)`, computing `dX = dY @ transpose(W)` and `dW = transpose(X) @ dY` for rank-2 CPU tensors, including valid empty shapes.
+
+The kernel checks all tensor descriptors, shape products, finite source values, expected rank/inner dimensions, output capacities and explicit `List<float>` identity-disjointness before arithmetic. Both gradients are calculated in independent caller-owned scratch buffers with finite product and reduction checks **before either public output is written**. If right-side accumulation overflows after left-side scratch succeeds, both public outputs remain unchanged; scratch may change. This provides logical input/arithmetic-error preservation, NOT crash-atomic dual-buffer publication under process termination or unsafe concurrent memory writes.
+
+The API does not provide a general transpose view, matmul engine, GPU kernel, optimizer update, frozen `TensorF64` storage or actor-state lock. A production actor must pin immutable parameter-version leases with the sole `state {}` and short `using`/`handle_state` RW loans, and run the entire matmul/VJP operation **outside** those loans. No actor-state loan may be sent in a message or kept across suspension.
+
+Native `tests/matmul_two_sided_vjp_smoke.ores` is added to `scripts/test.sh` whenever a real `ORESLANG_BIN` is set. Host-only `tests/matmul_two_sided_vjp_oracle.test.mjs` checks rectangular gradients against central finite differences, seeded bilinear adjoints, zero extents, mismatched shapes and overflow preserving output. Real Java/LLVM guest execution and backend sanitizer evidence remain required and NOT_VERIFIED. Cross-org private compiler tree mirroring is paused under security issues #22 and #77.
