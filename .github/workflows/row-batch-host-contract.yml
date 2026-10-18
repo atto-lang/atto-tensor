@@ -1,0 +1,35 @@
+name: Tensor row-batch VJP contract (host-only)
+on:
+  pull_request:
+    paths:
+      - "src/row_batches.ores"
+      - "tests/row_batches_smoke.ores"
+      - "tests/row_batches_contract.test.mjs"
+      - "docs/CONTRACT.md"
+      - "scripts/test.sh"
+      - ".github/workflows/row-batch-host-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  independent-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Independent deterministic data-batch and adjoint oracles
+        run: node --test tests/row_batches_contract.test.mjs
+      - name: Check guest-runner configuration is fail-closed
+        run: |
+          set -eu
+          sh -n scripts/test.sh
+          set +e
+          env -u ORESLANG_BIN sh scripts/test.sh
+          status=$?
+          set -e
+          test "$status" -eq 78
+      - name: Print evidence boundary
+        run: echo "HOST_ONLY; guestExecution=NOT_EXECUTED; cpuTensorBackend=NOT_VERIFIED"
