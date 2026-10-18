@@ -1,0 +1,20 @@
+name: Source contract (not compiler proof)
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure native source and explicit test admission
+        run: |
+          test -s src/tensor.ores
+          test -s tests/smoke.ores
+          sh -n scripts/test.sh
+          if sh scripts/test.sh; then
+            echo "unexpected: test runner admitted without compiler" >&2
+            exit 1
+          else
+            echo "expected: real compiler unavailable; this is NOT guest conformance"
+          fi
