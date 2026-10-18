@@ -71,7 +71,7 @@ test("zero dimensions emit zero or empty gradients as algebra requires",()=>{
   const a=bothVjp([], [1,2,3,4,5,6], [],0,2,3,[],Array(6).fill(99));
   assert.deepEqual(a.dx,[]);
   assert.deepEqual(a.dw,Array(6).fill(0));
-  const b=bothVjp([],[],[],3,0,2,[],[]);
+  const b=bothVjp([],[],Array(6).fill(1),3,0,2,[],[]);
   assert.deepEqual(b.dx,[]); assert.deepEqual(b.dw,[]);
 });
 test("finite differences agree for rectangular matrices and both operands",()=>{
