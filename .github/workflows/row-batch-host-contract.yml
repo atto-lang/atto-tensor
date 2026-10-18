@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - "src/row_batches.ores"
+      - "src/matmul_vjp.ores"
+      - "tests/matmul_vjp_smoke.ores"
+      - "tests/matmul_vjp_contract.test.mjs"
       - "tests/row_batches_smoke.ores"
       - "tests/row_batches_contract.test.mjs"
       - "docs/CONTRACT.md"
@@ -21,7 +24,7 @@ jobs:
         with:
           node-version: "22"
       - name: Independent deterministic data-batch and adjoint oracles
-        run: node --test tests/row_batches_contract.test.mjs
+        run: node --test tests/row_batches_contract.test.mjs tests/matmul_vjp_contract.test.mjs
       - name: Check guest-runner configuration is fail-closed
         run: |
           set -eu
