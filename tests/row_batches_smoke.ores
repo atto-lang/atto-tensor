@@ -1,0 +1,74 @@
+// Pure Oreslang row batching / gather VJP acceptance fixture.
+// This is an execution target; host-only JS tests do not compile this source.
+import module Assert from "std/assert";
+import class TensorF64 from "../src/tensor";
+import fnc gather_rows_2d_f64_into, slice_rows_2d_f64_into, gather_rows_vjp_f64_checked_into from "../src/row_batches";
+
+pub routine main(): void {
+  val TensorF64 matrix = new TensorF64(
+    arr[3, 2],
+    arr[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  );
+
+  // Repeated gathers are legal and retain the selected row order.
+  val List<float> gathered = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(gather_rows_2d_f64_into(matrix, arr[2, 0, 2], gathered).is_ok());
+  Assert.equal_throws(gathered[0], 5.0);
+  Assert.equal_throws(gathered[1], 6.0);
+  Assert.equal_throws(gathered[2], 1.0);
+  Assert.equal_throws(gathered[3], 2.0);
+  Assert.equal_throws(gathered[4], 5.0);
+  Assert.equal_throws(gathered[5], 6.0);
+
+  val List<float> slice = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(slice_rows_2d_f64_into(matrix, 1, 2, slice).is_ok());
+  Assert.equal_throws(slice[0], 3.0);
+  Assert.equal_throws(slice[3], 6.0);
+  val List<float> empty = arr[];
+  Assert.true_throws(slice_rows_2d_f64_into(matrix, 3, 0, empty).is_ok());
+
+  // All preflight errors preserve an existing output sentinel.
+  val List<float> rejected = arr[99.0, 99.0, 99.0, 99.0];
+  Assert.true_throws(gather_rows_2d_f64_into(matrix, arr[1, 4], rejected).is_err());
+  Assert.equal_throws(rejected[0], 99.0);
+  Assert.equal_throws(rejected[3], 99.0);
+  Assert.true_throws(gather_rows_2d_f64_into(matrix, arr[-1, 0], rejected).is_err());
+  Assert.equal_throws(rejected[0], 99.0);
+  Assert.true_throws(slice_rows_2d_f64_into(matrix, 2, 2, rejected).is_err());
+  Assert.equal_throws(rejected[0], 99.0);
+  Assert.true_throws(slice_rows_2d_f64_into(matrix, -1, 2, rejected).is_err());
+  Assert.equal_throws(rejected[0], 99.0);
+  Assert.true_throws(gather_rows_2d_f64_into(matrix, arr[0, 1], matrix.values).is_err());
+  Assert.equal_throws(matrix.values[0], 1.0);
+
+  // dInput requires scatter-add at repeated source row 2.
+  val TensorF64 dy = new TensorF64(
+    arr[3, 2], arr[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  );
+  val List<float> scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> dx = arr[99.0, 99.0, 99.0, 99.0, 99.0, 99.0];
+  Assert.true_throws(gather_rows_vjp_f64_checked_into(
+    dy, arr[2, 0, 2], arr[3, 2], scratch, dx
+  ).is_ok());
+  Assert.equal_throws(dx[0], 3.0);
+  Assert.equal_throws(dx[1], 4.0);
+  Assert.equal_throws(dx[2], 0.0);
+  Assert.equal_throws(dx[3], 0.0);
+  Assert.equal_throws(dx[4], 6.0);
+  Assert.equal_throws(dx[5], 8.0);
+
+  val List<float> bad_dx = arr[99.0, 99.0, 99.0, 99.0, 99.0, 99.0];
+  Assert.true_throws(gather_rows_vjp_f64_checked_into(
+    dy, arr[2, 3, 2], arr[3, 2], scratch, bad_dx
+  ).is_err());
+  Assert.equal_throws(bad_dx[0], 99.0);
+  Assert.equal_throws(bad_dx[5], 99.0);
+  Assert.true_throws(gather_rows_vjp_f64_checked_into(
+    dy, arr[2, 0, 2], arr[3, 2], scratch, scratch
+  ).is_err());
+  Assert.true_throws(gather_rows_vjp_f64_checked_into(
+    dy, arr[2, 0, 2], arr[3, 2], dx, dy.values
+  ).is_err());
+  stdio.println("ORES_TENSOR_ROW_BATCH_VJP_PASS");
+  return;
+}
