@@ -6,3 +6,5 @@ if [ -z "${ORESLANG_BIN:-}" ] || [ ! -x "$ORESLANG_BIN" ]; then
   exit 78
 fi
 "$ORESLANG_BIN" tests/smoke.ores
+"$ORESLANG_BIN" tests/row_batches_smoke.ores
+"$ORESLANG_BIN" tests/matmul_vjp_smoke.ores
