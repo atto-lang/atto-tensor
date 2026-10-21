@@ -3,14 +3,14 @@ const MAX_I64: i128 = i64::MAX as i128;
 #[derive(Clone, Copy, Debug)]
 enum Value {
     Int(i128),
-    Bool(bool),
+    Bool,
 }
 
 fn as_i64_domain(v: Value, what: &str) -> Result<i128, String> {
     match v {
         Value::Int(n) if (0..=MAX_I64).contains(&n) => Ok(n),
         Value::Int(_) => Err(format!("invalid {what}")),
-        Value::Bool(_) => Err(format!("invalid {what}")),
+        Value::Bool => Err(format!("invalid {what}")),
     }
 }
 
@@ -44,7 +44,7 @@ fn stride_value(v: Value) -> Result<i128, String> {
     match v {
         Value::Int(n) if (-MAX_I64..=MAX_I64).contains(&n) => Ok(n),
         Value::Int(_) => Err("invalid stride".into()),
-        Value::Bool(_) => Err("invalid stride".into()),
+        Value::Bool => Err("invalid stride".into()),
     }
 }
 
@@ -109,7 +109,7 @@ fn checked_shape_product() {
     assert_eq!(numel(&ints(&[3, 4, 5])).unwrap(), 60);
     assert!(numel(&ints(&[(1_i128 << 62), 4])).is_err());
     assert!(numel(&ints(&[-1, 3])).is_err());
-    assert!(numel(&[Value::Bool(true), Value::Int(2)]).is_err());
+    assert!(numel(&[Value::Bool, Value::Int(2)]).is_err());
     assert!(numel(&vec![Value::Int(1); 33]).is_err());
 }
 
@@ -130,7 +130,7 @@ fn strides_reverse_and_escape() {
     assert!(reachable_span(&ints(&[1]), &ints(&[1]), Value::Int(-1), Value::Int(4)).is_err());
     assert!(reachable_span(
         &ints(&[2]),
-        &[Value::Bool(true)],
+        &[Value::Bool],
         Value::Int(0),
         Value::Int(3)
     )
