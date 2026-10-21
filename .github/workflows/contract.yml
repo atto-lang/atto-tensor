@@ -16,5 +16,7 @@ jobs:
           node-version: '22'
       - name: Validate proposed contract only
         run: npm test
+      - name: Run Rust tensor descriptor reference oracle
+        run: cargo test --manifest-path rust-reference/Cargo.toml
       - name: Confirm not actual Oreslang guest evidence
         run: echo "CONTRACT_ONLY_NOT_GUEST_EXECUTED"
