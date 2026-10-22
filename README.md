@@ -10,6 +10,6 @@ Native Oreslang tensor semantics and CPU reference kernels. The first tranche us
 
 See `docs/CONTRACT.md` and `src/tensor.ores` after bootstrap PR.
 
-## Engineering policy: no Python
+## No-Python policy
 
-Python is prohibited in this repository and throughout the `ores-truffle-oreslang` organization for scripts, tests, CI helpers, generators, analyzers, automation, and host tooling. Existing Python functionality must be migrated to **Rust** without weakening behavior, fixtures, or test coverage. The tensor implementation remains Oreslang; this rule specifically replaces Python tooling/reference code with Rust.
+Python source, scripts, tests, notebooks, package manifests, runtime dependencies, and CI tooling are not permitted in this repository. Host-side tooling and reference tests must be implemented in Rust with equivalent behavior and coverage. Documentation may mention Python only to describe this policy or historical migration work.

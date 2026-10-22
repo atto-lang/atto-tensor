@@ -1,5 +1,5 @@
 [package]
-name = "oreslang-tensor-reference-tests"
+name = "oreslang-tensor-contract-tests"
 version = "0.1.0"
 edition = "2021"
 publish = false
