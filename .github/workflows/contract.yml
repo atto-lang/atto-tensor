@@ -16,5 +16,11 @@ jobs:
           node-version: '22'
       - name: Validate proposed contract only
         run: npm test
+      - name: Run Rust tensor descriptor reference oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --edition=2021 -D warnings --test tests/test_descriptor_reference.rs -o /tmp/tensor-descriptor-reference
+          /tmp/tensor-descriptor-reference
       - name: Confirm not actual Oreslang guest evidence
         run: echo "CONTRACT_ONLY_NOT_GUEST_EXECUTED"
