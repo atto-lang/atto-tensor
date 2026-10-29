@@ -1,0 +1,160 @@
+// Pure-Oreslang valid 1D cross-correlation and two-sided reverse-mode VJP.
+// This is the conventional ML "convolution" orientation (no flipped kernel).
+// No stride, padding, channels, dilation or GPU claim; this is a CNN primitive.
+// All inputs/outputs use contiguous rank-1 TensorF64; disjoint caller-provided
+// buffer guards are temporary until compiler-proven unique Array<T> loans.
+import class TensorF64 from './tensor';
+import fnc validate_tensor, checked_numel from './tensor';
+
+fnc num_floats(List<float> values): int {
+  let int n = 0;
+  for const value of values do
+    n = n + 1;
+  done
+  return n;
+}
+fnc num_ints(List<int> values): int {
+  let int n = 0;
+  for const value of values do
+    n = n + 1;
+  done
+  return n;
+}
+fnc finite_f64(float value): bool {
+  return (value - value) == 0.0;
+}
+fnc checked_conv1d_dimensions(
+  TensorF64 signal,
+  TensorF64 kernel,
+  int output_count
+): Result<int, String> {
+  if validate_tensor(signal).is_err() || validate_tensor(kernel).is_err(); do
+    return Err("conv1d invalid input tensor");
+  fi
+  if num_ints(signal.shape) != 1 || num_ints(kernel.shape) != 1; do
+    return Err("conv1d requires rank-one tensors");
+  fi
+  val int n = signal.shape[0];
+  val int k = kernel.shape[0];
+  if k <= 0 || n < k; do
+    return Err("conv1d requires a nonempty kernel within signal length");
+  fi
+  val int out = n - k + 1;
+  if out != output_count; do
+    return Err("conv1d incorrect output length");
+  fi
+  return Ok(out);
+}
+
+// Forward cross-correlation y[t] = sum_j x[t+j] * kernel[j].
+// Two passes preflight every arithmetic intermediate before output mutation.
+pub fnc conv1d_valid_f64_checked_into(
+  TensorF64 signal,
+  TensorF64 kernel,
+  List<float> mut output
+): Result<bool, String> {
+  if output is signal.values || output is kernel.values; do
+    return Err("conv1d output aliases inputs");
+  fi
+  val Result<int,String> n_out = checked_conv1d_dimensions(
+    signal,kernel,num_floats(output)
+  );
+  if n_out.is_err(); do
+    return Err("conv1d invalid forward dimensions");
+  fi
+  val int count = n_out.unwrap();
+  val int k = kernel.shape[0];
+  for int t = 0; t < count; t++ do
+    let float total = 0.0;
+    for int j = 0; j < k; j++ do
+      total = total + signal.values[t+j] * kernel.values[j];
+      if !finite_f64(total); do
+        return Err("conv1d nonfinite forward result");
+      fi
+    done
+  done
+  for int t = 0; t < count; t++ do
+    let float total = 0.0;
+    for int j = 0; j < k; j++ do
+      total = total + signal.values[t+j] * kernel.values[j];
+    done
+    output[t] = total;
+  done
+  return Ok(true);
+}
+
+// Reverse mode for y[t] = sum_j signal[t+j] * kernel[j]:
+// dSignal[t+j] += upstream[t] * kernel[j]
+// dKernel[j] += upstream[t] * signal[t+j].
+// Compute in two disjoint scratch buffers; on failure neither published
+// gradient output is changed. This is an OPERATOR VJP, not a graph tape.
+pub fnc conv1d_valid_vjp_f64_checked_into(
+  TensorF64 signal,
+  TensorF64 kernel,
+  TensorF64 upstream,
+  List<float> mut signal_scratch,
+  List<float> mut kernel_scratch,
+  List<float> mut signal_gradient,
+  List<float> mut kernel_gradient
+): Result<bool, String> {
+  if signal_scratch is kernel_scratch || signal_scratch is signal_gradient ||
+     signal_scratch is kernel_gradient || kernel_scratch is signal_gradient ||
+     kernel_scratch is kernel_gradient || signal_gradient is kernel_gradient; do
+    return Err("conv1d VJP output/scratch aliases");
+  fi
+  if signal_scratch is signal.values || signal_scratch is kernel.values ||
+     signal_scratch is upstream.values ||
+     kernel_scratch is signal.values || kernel_scratch is kernel.values ||
+     kernel_scratch is upstream.values ||
+     signal_gradient is signal.values || signal_gradient is kernel.values ||
+     signal_gradient is upstream.values ||
+     kernel_gradient is signal.values || kernel_gradient is kernel.values ||
+     kernel_gradient is upstream.values; do
+    return Err("conv1d VJP output aliases input tensors");
+  fi
+  if validate_tensor(upstream).is_err() || num_ints(upstream.shape) != 1; do
+    return Err("conv1d VJP requires rank-one upstream");
+  fi
+  val Result<int,String> checked = checked_conv1d_dimensions(
+    signal,kernel,num_floats(upstream.values)
+  );
+  if checked.is_err(); do
+    return Err("conv1d VJP invalid input dimensions");
+  fi
+  val int count = checked.unwrap();
+  val int n = signal.shape[0];
+  val int k = kernel.shape[0];
+  if count != upstream.shape[0] ||
+     checked_numel(signal.shape,num_floats(signal_scratch)).is_err() ||
+     checked_numel(signal.shape,num_floats(signal_gradient)).is_err() ||
+     checked_numel(kernel.shape,num_floats(kernel_scratch)).is_err() ||
+     checked_numel(kernel.shape,num_floats(kernel_gradient)).is_err(); do
+    return Err("conv1d VJP incompatible gradient shapes");
+  fi
+  for int i = 0; i < n; i++ do
+    signal_scratch[i] = 0.0;
+  done
+  for int j = 0; j < k; j++ do
+    kernel_scratch[j] = 0.0;
+  done
+  for int t = 0; t < count; t++ do
+    for int j = 0; j < k; j++ do
+      val float ds = signal_scratch[t+j] +
+        upstream.values[t] * kernel.values[j];
+      val float dk = kernel_scratch[j] +
+        upstream.values[t] * signal.values[t+j];
+      if !finite_f64(ds) || !finite_f64(dk); do
+        return Err("conv1d VJP nonfinite gradient accumulation");
+      fi
+      signal_scratch[t+j] = ds;
+      kernel_scratch[j] = dk;
+    done
+  done
+  for int i = 0; i < n; i++ do
+    signal_gradient[i] = signal_scratch[i];
+  done
+  for int j = 0; j < k; j++ do
+    kernel_gradient[j] = kernel_scratch[j];
+  done
+  return Ok(true);
+}
