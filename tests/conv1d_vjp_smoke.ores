@@ -1,0 +1,37 @@
+// Exact-source Oreslang guest acceptance target for valid Conv1D.
+// Not a native compile/execution receipt; see conformance release gates.
+import module Assert from 'std/assert';
+import class TensorF64 from '../src/tensor';
+import fnc conv1d_valid_f64_checked_into, conv1d_valid_vjp_f64_checked_into
+  from '../src/conv1d';
+
+pub routine main(): void {
+  val TensorF64 signal = new TensorF64(arr[3],arr[1.0,2.0,3.0]);
+  val TensorF64 kernel = new TensorF64(arr[2],arr[2.0,-1.0]);
+  val List<float> output = arr[-99.0,-99.0];
+  Assert.true_throws(conv1d_valid_f64_checked_into(signal,kernel,output).is_ok());
+  Assert.true_throws(output[0] == 0.0 && output[1] == 1.0);
+
+  val TensorF64 upstream = new TensorF64(arr[2],arr[3.0,4.0]);
+  val List<float> s_scratch = arr[0.0,0.0,0.0];
+  val List<float> k_scratch = arr[0.0,0.0];
+  val List<float> ds = arr[-99.0,-99.0,-99.0];
+  val List<float> dk = arr[-99.0,-99.0];
+  Assert.true_throws(conv1d_valid_vjp_f64_checked_into(
+    signal,kernel,upstream,s_scratch,k_scratch,ds,dk
+  ).is_ok());
+  Assert.true_throws(ds[0] == 6.0 && ds[1] == 5.0 && ds[2] == -4.0);
+  Assert.true_throws(dk[0] == 11.0 && dk[1] == 18.0);
+
+  val TensorF64 malformed_upstream = new TensorF64(arr[1],arr[3.0]);
+  Assert.true_throws(conv1d_valid_vjp_f64_checked_into(
+    signal,kernel,malformed_upstream,s_scratch,k_scratch,ds,dk
+  ).is_err());
+  Assert.true_throws(ds[0] == 6.0 && ds[1] == 5.0 && ds[2] == -4.0);
+  Assert.true_throws(dk[0] == 11.0 && dk[1] == 18.0);
+  // Alias rejection must not write to a saved forward source.
+  Assert.true_throws(conv1d_valid_f64_checked_into(
+    signal,kernel,signal.values
+  ).is_err());
+  stdio.println("ORES_TENSOR_CONV1D_VJP_PASS");
+}
