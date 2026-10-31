@@ -8,10 +8,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-function check(executable) {
+function check(executable, timeoutSeconds = '120') {
   return spawnSync('sh', ['scripts/test.sh'], {
     cwd: root,
-    env: { ...process.env, ORESLANG_BIN: executable },
+    env: { ...process.env, ORESLANG_BIN: executable, ORESLANG_GUEST_TIMEOUT_SEC: String(timeoutSeconds) },
     encoding: 'utf8',
     timeout: 10000,
   });
@@ -53,4 +53,27 @@ test('unexpected stderr rejects an otherwise matching marker', (t) => {
   const result = check(runner);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /GUEST_UNEXPECTED_STDERR/);
+});
+
+test('hanging synthetic guest is terminated by the per-fixture watchdog', (t) => {
+  const runner = fakeRunner(t, '#!/bin/sh\nsleep 20\n');
+  const result = check(runner, '1');
+  assert.notEqual(result.status, 0);
+  assert.equal(result.error, undefined, 'watchdog must end before host timeout');
+  assert.match(result.stderr, /GUEST_TIMEOUT: tests\/smoke\.ores/);
+});
+
+test('invalid timeout configuration fails before invoking a guest', (t) => {
+  const runner = fakeRunner(t, '#!/bin/sh\necho UNEXPECTED_RUN\n');
+  const result = check(runner, '999');
+  assert.equal(result.status, 78);
+  assert.match(result.stderr, /UNCONFIGURED: invalid bounded guest timeout/);
+  assert.doesNotMatch(result.stdout, /UNEXPECTED_RUN/);
+});
+
+test('nonzero guest exit never counts as a successful smoke case', (t) => {
+  const runner = fakeRunner(t, '#!/bin/sh\nexit 41\n');
+  const result = check(runner);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /GUEST_FAILED: tests\/smoke\.ores/);
 });
