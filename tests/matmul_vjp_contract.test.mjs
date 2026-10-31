@@ -118,3 +118,25 @@ test("matrix VJP rejects 2-output alias and alias to each input backing",()=>{
   const checkRight=source.indexOf('return Err("matmul VJP nonfinite right gradient")');
   assert(finishLeft>checkRight&&finishRight>finishLeft);
 });
+
+test("huge zero-extent axes cannot reach VJP scalar loops",()=>{
+  // HOST-ONLY structural guard: real Oreslang execution is a separate gate.
+  const alias=source.indexOf("if left_scratch is right_scratch");
+  const inputCheck=source.indexOf("if validate_tensor(left).is_err()");
+  const scratchSize=source.indexOf("if num_floats(left_scratch) != num_floats(left_gradient)");
+  const emptyGuard=source.indexOf("if num_floats(left_gradient) == 0 && num_floats(right_gradient) == 0");
+  const firstLoop=source.indexOf("for int i=0; i<rows; i++ do");
+  const secondLoop=source.indexOf("for int k=0; k<inner; k++ do",firstLoop);
+  assert(alias>=0 && inputCheck>alias && scratchSize>inputCheck);
+  assert(emptyGuard>scratchSize && firstLoop>emptyGuard && secondLoop>firstLoop);
+  assert.match(source.slice(emptyGuard,firstLoop),/return Ok\(true\);/);
+  assert.match(fixture,/huge_zero_left.*2000000000,0/);
+  assert.match(fixture,/huge_inner_right.*2000000000,0/);
+  assert.match(fixture,/huge_zero_as,huge_zero_bs,huge_zero_as,huge_zero_db/);
+  for(const [m,k,n] of [[2000000000,0,0],[0,2000000000,0]]){
+    // Both dA and dB have exactly zero elements, with no allocation.
+    assert.equal(m*k,0);
+    assert.equal(k*n,0);
+    assert.equal(m*n,0);
+  }
+});
