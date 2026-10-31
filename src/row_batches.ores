@@ -54,6 +54,13 @@ pub fnc gather_rows_2d_f64_into(
     fi
   done
 
+  // No output values exist when either dimension is zero. Still validate
+  // every index above, including invalid indices into zero-row sources.
+  // Avoid repeating the selected-row traversal for zero-column tensors.
+  if count_floats(output) == 0; do
+    return Ok(true);
+  fi
+
   for int i = 0; i < selected; i++ do
     val int source_row = indices[i];
     for int column = 0; column < columns; column++ do
@@ -156,6 +163,12 @@ pub fnc gather_rows_vjp_f64_checked_into(
       return Err("gather VJP row index out of bounds");
     fi
   done
+
+  // Empty original gradients require no initialization or scatter-add.
+  // This comes AFTER both descriptors, scratch, alias and index checks.
+  if n == 0; do
+    return Ok(true);
+  fi
 
   for int k = 0; k < n; k++ do
     scratch[k] = 0.0;
