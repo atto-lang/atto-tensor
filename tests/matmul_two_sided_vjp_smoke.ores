@@ -60,6 +60,24 @@ pub routine main(): void {
   Assert.equal_throws(huge_dx[0], 17.0);
   Assert.equal_throws(huge_dw[0], 23.0);
 
+  // Huge logical zero-extent shapes must not cause billions of empty
+  // row iterations, and all alias guards still apply to empty outputs.
+  val TensorF64 empty_left = new TensorF64(arr[2000000000, 0], arr[]);
+  val TensorF64 empty_right = new TensorF64(arr[0, 0], arr[]);
+  val TensorF64 empty_upstream = new TensorF64(arr[2000000000, 0], arr[]);
+  val List<float> empty_left_scratch = arr[];
+  val List<float> empty_right_scratch = arr[];
+  val List<float> empty_dx = arr[];
+  val List<float> empty_dw = arr[];
+  Assert.true_throws(matmul_both_vjp_f64_checked_into(
+    empty_left, empty_right, empty_upstream,
+    empty_left_scratch, empty_right_scratch, empty_dx, empty_dw
+  ).is_ok());
+  Assert.true_throws(matmul_both_vjp_f64_checked_into(
+    empty_left, empty_right, empty_upstream,
+    empty_left.values, empty_right_scratch, empty_dx, empty_dw
+  ).is_err());
+
   // Typed alias-prohibition cases belong in negative compiler fixtures;
   // this positive runtime example must not fail to type-check intentionally.
   stdio.println("ORES_MATMUL_TWO_SIDED_VJP_PASS");
