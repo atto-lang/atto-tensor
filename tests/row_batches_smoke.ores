@@ -46,6 +46,25 @@ pub routine main(): void {
   ).is_err());
   Assert.equal_throws(wrong_zero_slice_storage[0], 37.0);
 
+  // Zero-column gather must still reject bad indices, aliasing and storage
+  // before taking its empty-output path.
+  Assert.true_throws(gather_rows_2d_f64_into(
+    huge_zero_columns, arr[0, 1999999999, 0], empty
+  ).is_ok());
+  Assert.true_throws(gather_rows_2d_f64_into(
+    huge_zero_columns, arr[2000000000], empty
+  ).is_err());
+  Assert.true_throws(gather_rows_2d_f64_into(
+    huge_zero_columns, arr[-1], empty
+  ).is_err());
+  Assert.true_throws(gather_rows_2d_f64_into(
+    huge_zero_columns, arr[0], huge_zero_columns.values
+  ).is_err());
+  Assert.true_throws(gather_rows_2d_f64_into(
+    huge_zero_columns, arr[0], wrong_zero_slice_storage
+  ).is_err());
+  Assert.equal_throws(wrong_zero_slice_storage[0], 37.0);
+
   // All preflight errors preserve an existing output sentinel.
   val List<float> rejected = arr[99.0, 99.0, 99.0, 99.0];
   Assert.true_throws(gather_rows_2d_f64_into(matrix, arr[1, 4], rejected).is_err());
@@ -87,6 +106,24 @@ pub routine main(): void {
   ).is_err());
   Assert.true_throws(gather_rows_vjp_f64_checked_into(
     dy, arr[2, 0, 2], arr[3, 2], dx, dy.values
+  ).is_err());
+
+  // Empty-gradient VJP must short-circuit only after validating index,
+  // upstream, both destination shapes, and mutable-buffer disjointness.
+  val TensorF64 dy_zero_columns = new TensorF64(arr[3, 0], arr[]);
+  val List<float> zero_grad_scratch = arr[];
+  val List<float> zero_grad_output = arr[];
+  Assert.true_throws(gather_rows_vjp_f64_checked_into(
+    dy_zero_columns, arr[0, 1999999999, 0], arr[2000000000, 0],
+    zero_grad_scratch, zero_grad_output
+  ).is_ok());
+  Assert.true_throws(gather_rows_vjp_f64_checked_into(
+    dy_zero_columns, arr[2000000000, 0, 0], arr[2000000000, 0],
+    zero_grad_scratch, zero_grad_output
+  ).is_err());
+  Assert.true_throws(gather_rows_vjp_f64_checked_into(
+    dy_zero_columns, arr[0, 1999999999, 0], arr[2000000000, 0],
+    zero_grad_scratch, zero_grad_scratch
   ).is_err());
   stdio.println("ORES_TENSOR_ROW_BATCH_VJP_PASS");
   return;
