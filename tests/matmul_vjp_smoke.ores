@@ -99,6 +99,35 @@ pub routine main(): void {
     empty_a_scratch,empty_b_scratch,empty_da,empty_db
   ).is_ok());
 
+  // These shapes have zero gradient elements but billion-scale axes.
+  // A full dimension-driven loop would hang; an empty fast path must still
+  // reject aliasing before success.
+  val TensorF64 huge_zero_left = new TensorF64(arr[2000000000,0],arr[]);
+  val TensorF64 huge_zero_right = new TensorF64(arr[0,0],arr[]);
+  val TensorF64 huge_zero_upstream = new TensorF64(arr[2000000000,0],arr[]);
+  val List<float> huge_zero_as = arr[];
+  val List<float> huge_zero_bs = arr[];
+  val List<float> huge_zero_da = arr[];
+  val List<float> huge_zero_db = arr[];
+  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
+    huge_zero_left,huge_zero_right,huge_zero_upstream,
+    huge_zero_as,huge_zero_bs,huge_zero_da,huge_zero_db
+  ).is_ok());
+  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
+    huge_zero_left,huge_zero_right,huge_zero_upstream,
+    huge_zero_as,huge_zero_bs,huge_zero_as,huge_zero_db
+  ).is_err());
+
+  // Both output shapes can also be zero while the inner dimension is huge.
+  // The right-gradient outer loop is otherwise 2 billion empty iterations.
+  val TensorF64 huge_inner_left = new TensorF64(arr[0,2000000000],arr[]);
+  val TensorF64 huge_inner_right = new TensorF64(arr[2000000000,0],arr[]);
+  val TensorF64 huge_inner_upstream = new TensorF64(arr[0,0],arr[]);
+  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
+    huge_inner_left,huge_inner_right,huge_inner_upstream,
+    huge_zero_as,huge_zero_bs,huge_zero_da,huge_zero_db
+  ).is_ok());
+
   stdio.println("ORES_TENSOR_MATMUL_DUAL_VJP_PASS");
   return;
 }
