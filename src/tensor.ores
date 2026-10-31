@@ -34,7 +34,14 @@ pub fnc checked_numel(List<int> shape, int storage_length): Result<int, String> 
     return Err("negative storage length");
   fi
   let bool zero_dimension = false;
+  // Match the 32-axis descriptor-reference ABI even when storage is empty.
+  // Reject after 33 visited dimensions without needing shape-sized allocation.
+  let int rank = 0;
   for const dimension of shape do
+    rank = rank + 1;
+    if rank > 32; do
+      return Err("tensor rank exceeds 32");
+    fi
     if dimension < 0; do
       return Err("negative tensor dimension");
     fi
