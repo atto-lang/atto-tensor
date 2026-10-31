@@ -1,0 +1,113 @@
+// Reverse broadcasting primitive: collapse a dense upstream gradient to
+// an original operand shape. This is a CPU scalar reference kernel.
+// All publicly visible output writes occur only after scratch succeeds.
+import class TensorF64 from './tensor';
+import fnc checked_numel, validate_tensor from './tensor';
+
+fnc count_int(List<int> items): int {
+  let int count = 0;
+  for const item of items do
+    count = count + 1;
+  done
+  return count;
+}
+
+fnc count_float(List<float> items): int {
+  let int count = 0;
+  for const item of items do
+    count = count + 1;
+  done
+  return count;
+}
+
+// Shape validation for right-aligned reduction axes, including rank 0.
+pub fnc validate_sum_to_shape(
+  TensorF64 upstream,
+  List<int> target_shape,
+  int target_length
+): Result<bool, String> {
+  if validate_tensor(upstream).is_err(); do
+    return Err("invalid upstream tensor");
+  fi
+  val int upstream_rank = count_int(upstream.shape);
+  val int target_rank = count_int(target_shape);
+  if target_rank > upstream_rank; do
+    return Err("target rank exceeds upstream rank");
+  fi
+  if checked_numel(target_shape, target_length).is_err(); do
+    return Err("invalid target shape");
+  fi
+  for int axis = 0; axis < upstream_rank; axis++ do
+    val int target_axis = axis - (upstream_rank - target_rank);
+    let int target_extent = 1;
+    if target_axis >= 0; do
+      target_extent = target_shape[target_axis];
+    fi
+    val int original = upstream.shape[axis];
+    if target_extent != original && target_extent != 1; do
+      return Err("unbroadcastable target shape");
+    fi
+  done
+  return Ok(true);
+}
+
+// Assumes validated shapes. Never called for a zero-sized upstream.
+fnc target_index(
+  List<int> upstream_shape,
+  List<int> target_shape,
+  int linear_position
+): int {
+  val int up_rank = count_int(upstream_shape);
+  val int target_rank = count_int(target_shape);
+  let int remaining = linear_position;
+  let int stride = 1;
+  let int index = 0;
+  for int axis = up_rank - 1; axis >= 0; axis-- do
+    val int dim = upstream_shape[axis];
+    val int coordinate = remaining % dim;
+    remaining = remaining / dim;
+    val int out_axis = axis - (up_rank - target_rank);
+    if out_axis >= 0; do
+      val int output_dim = target_shape[out_axis];
+      if output_dim != 1; do
+        index = index + coordinate * stride;
+      fi
+      stride = stride * output_dim;
+    fi
+  done
+  return index;
+}
+
+pub fnc sum_to_shape_f64_checked_into(
+  TensorF64 upstream,
+  List<int> target_shape,
+  List<float> mut scratch,
+  List<float> mut output
+): Result<bool, String> {
+  if scratch is output || scratch is upstream.values || output is upstream.values; do
+    return Err("gradient reduction buffers must be disjoint");
+  fi
+  val int n = count_float(output);
+  if count_float(scratch) != n; do
+    return Err("gradient scratch length mismatch");
+  fi
+  if validate_sum_to_shape(upstream, target_shape, n).is_err(); do
+    return Err("invalid gradient reduction");
+  fi
+  for int j = 0; j < n; j++ do
+    scratch[j] = 0.0;
+  done
+  val int source_n = count_float(upstream.values);
+  for int i = 0; i < source_n; i++ do
+    val int k = target_index(upstream.shape, target_shape, i);
+    val float next = scratch[k] + upstream.values[i];
+    if (next - next) != 0.0; do
+      return Err("nonfinite reduced gradient");
+    fi
+    scratch[k] = next;
+  done
+  for int j = 0; j < n; j++ do
+    output[j] = scratch[j];
+  done
+  return Ok(true);
+}

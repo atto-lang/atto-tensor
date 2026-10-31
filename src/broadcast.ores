@@ -1,0 +1,158 @@
+// Dense right-aligned NumPy-style shape broadcasting.
+// Reference-only List<float> representation; real owned storage pending.
+import class TensorF64 from './tensor';
+import fnc checked_numel, validate_tensor from './tensor';
+
+fnc count_ints(List<int> xs): int {
+  let int n = 0;
+  for const v of xs do
+    n = n + 1;
+  done
+  return n;
+}
+
+fnc count_floats(List<float> xs): int {
+  let int n = 0;
+  for const v of xs do
+    n = n + 1;
+  done
+  return n;
+}
+
+// A missing leading dimension is 1, including rank-zero scalars.
+fnc aligned_dimension(List<int> shape, int axis, int out_rank): int {
+  val int index = axis - (out_rank - count_ints(shape));
+  if index < 0; do
+    return 1;
+  fi
+  return shape[index];
+}
+
+pub fnc validate_broadcast(
+  TensorF64 left,
+  TensorF64 right,
+  List<int> output_shape,
+  int output_length
+): Result<bool, String> {
+  if validate_tensor(left).is_err() || validate_tensor(right).is_err(); do
+    return Err("invalid tensor input");
+  fi
+  val int a_rank = count_ints(left.shape);
+  val int b_rank = count_ints(right.shape);
+  val int out_rank = count_ints(output_shape);
+  if out_rank < a_rank || out_rank < b_rank; do
+    return Err("output rank too small");
+  fi
+  if out_rank != a_rank && out_rank != b_rank; do
+    return Err("output rank must equal maximum input rank");
+  fi
+  if checked_numel(output_shape, output_length).is_err(); do
+    return Err("invalid output descriptor");
+  fi
+
+  for int axis = 0; axis < out_rank; axis++ do
+    val int a = aligned_dimension(left.shape, axis, out_rank);
+    val int b = aligned_dimension(right.shape, axis, out_rank);
+    if a != b && a != 1 && b != 1; do
+      return Err("incompatible broadcast dimensions");
+    fi
+    let int expected = a;
+    if a == 1; do
+      expected = b;
+    fi
+    if output_shape[axis] != expected; do
+      return Err("incorrect output broadcast shape");
+    fi
+  done
+  return Ok(true);
+}
+
+// Precondition: validate_broadcast succeeded, and position is within output.
+fnc input_offset_for_output(
+  List<int> input_shape,
+  List<int> output_shape,
+  int position
+): int {
+  val int out_rank = count_ints(output_shape);
+  val int in_rank = count_ints(input_shape);
+  let int remaining = position;
+  let int input_offset = 0;
+  let int input_stride = 1;
+  for int axis = out_rank - 1; axis >= 0; axis-- do
+    val int extent = output_shape[axis];
+    val int coordinate = remaining % extent;
+    remaining = remaining / extent;
+    val int input_axis = axis - (out_rank - in_rank);
+    if input_axis >= 0; do
+      val int input_extent = input_shape[input_axis];
+      if input_extent != 1; do
+        input_offset = input_offset + coordinate * input_stride;
+      fi
+      input_stride = input_stride * input_extent;
+    fi
+  done
+  return input_offset;
+}
+
+pub fnc broadcast_add_f64_into(
+  TensorF64 left,
+  TensorF64 right,
+  List<int> output_shape,
+  List<float> mut output
+): Result<bool, String> {
+  if output is left.values || output is right.values; do
+    return Err("broadcast output aliases input");
+  fi
+  val int n = count_floats(output);
+  if validate_broadcast(left, right, output_shape, n).is_err(); do
+    return Err("broadcast shape or input invalid");
+  fi
+
+  // Validate every candidate before the first user-visible write.
+  for int i = 0; i < n; i++ do
+    val int a = input_offset_for_output(left.shape, output_shape, i);
+    val int b = input_offset_for_output(right.shape, output_shape, i);
+    val float value = left.values[a] + right.values[b];
+    if (value - value) != 0.0; do
+      return Err("nonfinite broadcast result");
+    fi
+  done
+  for int i = 0; i < n; i++ do
+    val int a = input_offset_for_output(left.shape, output_shape, i);
+    val int b = input_offset_for_output(right.shape, output_shape, i);
+    output[i] = left.values[a] + right.values[b];
+  done
+  return Ok(true);
+}
+
+
+// Same broadcast/indexing contract as addition, with multiplicative values.
+// Preflight must reject nonfinite intermediates before publishing any output.
+pub fnc broadcast_mul_f64_into(
+  TensorF64 left,
+  TensorF64 right,
+  List<int> output_shape,
+  List<float> mut output
+): Result<bool, String> {
+  if output is left.values || output is right.values; do
+    return Err("broadcast multiply output aliases input");
+  fi
+  val int n = count_floats(output);
+  if validate_broadcast(left, right, output_shape, n).is_err(); do
+    return Err("broadcast multiply shape or input invalid");
+  fi
+  for int i = 0; i < n; i++ do
+    val int a = input_offset_for_output(left.shape, output_shape, i);
+    val int b = input_offset_for_output(right.shape, output_shape, i);
+    val float value = left.values[a] * right.values[b];
+    if (value - value) != 0.0; do
+      return Err("nonfinite broadcast multiply result");
+    fi
+  done
+  for int i = 0; i < n; i++ do
+    val int a = input_offset_for_output(left.shape, output_shape, i);
+    val int b = input_offset_for_output(right.shape, output_shape, i);
+    output[i] = left.values[a] * right.values[b];
+  done
+  return Ok(true);
+}

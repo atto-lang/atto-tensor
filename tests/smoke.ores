@@ -1,0 +1,123 @@
+import module Assert from "std/assert";
+import class TensorF64 from "../src/tensor";
+import fnc validate_broadcast, broadcast_add_f64_into, broadcast_mul_f64_into from "../src/broadcast";
+import fnc validate_sum_to_shape, sum_to_shape_f64_checked_into from "../src/gradients";
+import fnc checked_numel, validate_tensor, add_f64_into, relu_f64_into, sum_f64, matmul_2d_f64_into from "../src/tensor";
+
+pub routine main(): void {
+  val TensorF64 left = new TensorF64(arr[2, 2], arr[1.0, 2.0, 3.0, 4.0]);
+  val TensorF64 right = new TensorF64(arr[2, 2], arr[5.0, 6.0, 7.0, 8.0]);
+  Assert.true_throws(validate_tensor(left).is_ok());
+  Assert.true_throws(checked_numel(arr[2, 2], 4).is_ok());
+  Assert.true_throws(checked_numel(arr[2, 3], 4).is_err());
+  Assert.true_throws(checked_numel(arr[0, 8], 0).is_ok());
+  Assert.true_throws(checked_numel(arr[0, 8], 1).is_err());
+  Assert.true_throws(checked_numel(arr[-1, 2], 0).is_err());
+  Assert.true_throws(checked_numel(arr[], 1).is_ok());
+  Assert.true_throws(checked_numel(arr[2000000000, 2], 4).is_err());
+  Assert.true_throws(checked_numel(arr[1, 1, 1, 1], 1).is_ok());
+  // Native rank admission must match Rust's 32-axis descriptor reference.
+  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_ok());
+  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_err());
+  Assert.true_throws(checked_numel(arr[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 0).is_err());
+
+  val List<float> sums = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(add_f64_into(left, right, sums).is_ok());
+  Assert.equal_throws(sums[0], 6.0);
+  Assert.equal_throws(sums[3], 12.0);
+
+  Assert.true_throws(add_f64_into(left, right, left.values).is_err());
+  Assert.equal_throws(left.values[0], 1.0);
+  val List<float> bad_output = arr[17.0];
+  Assert.true_throws(add_f64_into(left, right, bad_output).is_err());
+  Assert.equal_throws(bad_output[0], 17.0);
+
+  val List<float> product = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(matmul_2d_f64_into(left, right, product).is_ok());
+  Assert.equal_throws(product[0], 19.0);
+  Assert.equal_throws(product[1], 22.0);
+  Assert.equal_throws(product[2], 43.0);
+  Assert.equal_throws(product[3], 50.0);
+  Assert.true_throws(matmul_2d_f64_into(left, right, left.values).is_err());
+  Assert.equal_throws(left.values[0], 1.0);
+
+  val TensorF64 with_negatives = new TensorF64(arr[4], arr[-2.0, 0.0, 3.0, -1.0]);
+  val List<float> activation = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(relu_f64_into(with_negatives, activation).is_ok());
+  Assert.equal_throws(activation[0], 0.0);
+  Assert.equal_throws(activation[2], 3.0);
+  Assert.equal_throws(sum_f64(left).unwrap(), 10.0);
+  // Rank alignment, singleton expansion, scalar broadcasting, and fail-closed output.
+  val TensorF64 col = new TensorF64(arr[2, 1], arr[10.0, 20.0]);
+  val TensorF64 row = new TensorF64(arr[1, 3], arr[1.0, 2.0, 3.0]);
+  val List<float> broadcast = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(broadcast_add_f64_into(col, row, arr[2, 3], broadcast).is_ok());
+  Assert.equal_throws(broadcast[0], 11.0);
+  Assert.equal_throws(broadcast[2], 13.0);
+  Assert.equal_throws(broadcast[3], 21.0);
+  Assert.equal_throws(broadcast[5], 23.0);
+  val List<float> multiplied = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], multiplied).is_ok());
+  Assert.equal_throws(multiplied[0], 10.0);
+  Assert.equal_throws(multiplied[2], 30.0);
+  Assert.equal_throws(multiplied[3], 20.0);
+  Assert.equal_throws(multiplied[5], 60.0);
+  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], row.values).is_err());
+
+
+  val TensorF64 scalar = new TensorF64(arr[], arr[5.0]);
+  val List<float> scalar_output = arr[0.0, 0.0, 0.0];
+  Assert.true_throws(broadcast_add_f64_into(scalar, row, arr[1, 3], scalar_output).is_ok());
+  Assert.equal_throws(scalar_output[0], 6.0);
+  Assert.equal_throws(scalar_output[2], 8.0);
+
+  val List<float> rejected = arr[99.0, 99.0, 99.0];
+  Assert.true_throws(broadcast_add_f64_into(col, row, arr[3], rejected).is_err());
+  Assert.equal_throws(rejected[0], 99.0);
+  Assert.true_throws(broadcast_add_f64_into(scalar, row, arr[1, 3], row.values).is_err());
+
+  val TensorF64 zero = new TensorF64(arr[0, 3], arr[]);
+  val List<float> empty_output = arr[];
+  // A zero-element output must short-circuit even with a huge outer
+  // dimension, after retaining all alias and descriptor rejection.
+  val TensorF64 huge_empty_left = new TensorF64(arr[2000000000, 0], arr[]);
+  val TensorF64 huge_empty_right = new TensorF64(arr[0, 0], arr[]);
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_empty_left, huge_empty_right, empty_output
+  ).is_ok());
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_empty_left, huge_empty_right, huge_empty_left.values
+  ).is_err());
+  val TensorF64 huge_inner_left = new TensorF64(arr[0, 2000000000], arr[]);
+  val TensorF64 huge_inner_right = new TensorF64(arr[2000000000, 0], arr[]);
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_inner_left, huge_inner_right, empty_output
+  ).is_ok());
+  Assert.true_throws(validate_broadcast(zero, row, arr[0, 3], 0).is_ok());
+  Assert.true_throws(broadcast_add_f64_into(zero, row, arr[0, 3], empty_output).is_ok());
+
+  // Sum-to-shape must collapse the axes expanded during broadcasting.
+  val TensorF64 upstream = new TensorF64(
+    arr[2, 3], arr[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  );
+  val List<float> sum_scratch = arr[0.0, 0.0, 0.0];
+  val List<float> sum_result = arr[0.0, 0.0, 0.0];
+  Assert.true_throws(sum_to_shape_f64_checked_into(
+    upstream, arr[1, 3], sum_scratch, sum_result
+  ).is_ok());
+  Assert.equal_throws(sum_result[0], 5.0);
+  Assert.equal_throws(sum_result[1], 7.0);
+  Assert.equal_throws(sum_result[2], 9.0);
+  Assert.true_throws(validate_sum_to_shape(upstream, arr[3, 1], 3).is_err());
+  val List<float> scalar_scratch = arr[0.0];
+  val List<float> scalar_gradient = arr[0.0];
+  Assert.true_throws(sum_to_shape_f64_checked_into(
+    upstream, arr[], scalar_scratch, scalar_gradient
+  ).is_ok());
+  Assert.equal_throws(scalar_gradient[0], 21.0);
+  Assert.true_throws(sum_to_shape_f64_checked_into(upstream, arr[], scalar_scratch, scalar_scratch).is_err());
+  Assert.equal_throws(scalar_scratch[0], 21.0);
+  Assert.true_throws(broadcast_add_f64_into(col, row, arr[2, 3], row.values).is_err());
+  stdio.println("ORES_ML_TENSOR_SMOKE_PASS");
+  return;
+}
