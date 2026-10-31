@@ -8,3 +8,4 @@ fi
 "$ORESLANG_BIN" tests/smoke.ores
 "$ORESLANG_BIN" tests/row_batches_smoke.ores
 "$ORESLANG_BIN" tests/matmul_vjp_smoke.ores
+"$ORESLANG_BIN" tests/matmul_two_sided_vjp_smoke.ores
