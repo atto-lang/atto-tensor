@@ -158,12 +158,12 @@ fn empty_views_validate_all_strides_and_offsets() {
 }
 
 #[test]
-fn wide_rank_overflow_is_rejected_without_wrapping() {
-    // Each dimension and stride is valid in i64 independently, but
-    // cumulative i128 span arithmetic cannot represent 32 large extents.
+fn huge_valid_extents_and_strides_cannot_escape_storage() {
+    // Both values fit i64, but their product greatly exceeds the storage.
+    // Keep descriptor arithmetic checked even as the domain evolves.
     assert!(reachable_span(
-        &ints(&vec![MAX_I64; 32]),
-        &ints(&vec![MAX_I64; 32]),
+        &ints(&[MAX_I64]),
+        &ints(&[MAX_I64]),
         Value::Int(0),
         Value::Int(MAX_I64)
     ).is_err());
