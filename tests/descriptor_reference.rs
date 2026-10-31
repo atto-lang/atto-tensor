@@ -52,6 +52,17 @@ fn reachable_span(
         return Err("invalid storage size");
     }
 
+    // Empty tensors have no reachable elements, but their descriptors must
+    // still have well-typed, representable strides before admission.
+    for stride in strides {
+        let Scalar::Int(value) = stride else {
+            return Err("invalid stride");
+        };
+        if value.unsigned_abs() > MAX_I64 as u128 {
+            return Err("invalid stride");
+        }
+    }
+
     let n = numel(shape)?;
     if n == 0 {
         if offset > storage {
@@ -125,6 +136,27 @@ fn strides_reverse_and_escape() {
     assert!(reachable_span(&ints(&[1]), &ints(&[1]), 4, 4).is_err());
     assert!(reachable_span(&ints(&[1]), &ints(&[1]), -1, 4).is_err());
     assert!(reachable_span(&ints(&[2]), &[Scalar::Bool], 0, 3).is_err());
+}
+
+#[test]
+fn empty_views_validate_all_strides_and_offsets() {
+    assert!(reachable_span(&ints(&[0]), &[Scalar::Bool], 0, 0).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[MAX_I64 + 1]), 0, 0).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[-MAX_I64 - 1]), 0, 0).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[0]), 1, 0).is_err());
+    assert_eq!(reachable_span(&ints(&[0]), &ints(&[0]), 0, 0), Ok(None));
+}
+
+#[test]
+fn zero_extent_cannot_hide_invalid_later_fields() {
+    assert!(reachable_span(&ints(&[0, 2]), &[Scalar::Int(0), Scalar::Bool], 0, 0).is_err());
+    assert!(reachable_span(&ints(&[0, -1]), &ints(&[0, 0]), 0, 0).is_err());
+    assert!(reachable_span(&ints(&[0, MAX_I64 + 1]), &ints(&[0, 0]), 0, 0).is_err());
+    assert_eq!(
+        reachable_span(&ints(&[0, 1]), &ints(&[MAX_I64, -MAX_I64]), MAX_I64, MAX_I64),
+        Ok(None)
+    );
+    assert!(reachable_span(&ints(&[0, 1]), &ints(&[0, 0]), MAX_I64 + 1, MAX_I64).is_err());
 }
 
 #[test]

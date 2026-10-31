@@ -60,6 +60,13 @@ fn reachable_span(
     let offset = as_i64_domain(offset, "descriptor")?;
     let storage = as_i64_domain(storage, "storage size")?;
     let n = numel(shape)?;
+    // Validate strides before returning for zero-extent tensors. Otherwise
+    // malformed descriptors can bypass type/range checks entirely.
+    let checked_strides: Vec<i128> = strides
+        .iter()
+        .copied()
+        .map(stride_value)
+        .collect::<Result<_, _>>()?;
 
     if n == 0 {
         if offset > storage {
@@ -76,11 +83,12 @@ fn reachable_span(
 
     let mut lo = offset;
     let mut hi = offset;
-    for (dim, stride) in dims.into_iter().zip(strides.iter().copied()) {
-        let stride = stride_value(stride)?;
-        let extent = (dim - 1) * stride;
-        lo += extent.min(0);
-        hi += extent.max(0);
+    for (dim, stride) in dims.into_iter().zip(checked_strides) {
+        let extent = (dim - 1)
+            .checked_mul(stride)
+            .ok_or("descriptor arithmetic overflow")?;
+        lo = lo.checked_add(extent.min(0)).ok_or("descriptor arithmetic overflow")?;
+        hi = hi.checked_add(extent.max(0)).ok_or("descriptor arithmetic overflow")?;
     }
 
     if lo < 0 || hi >= storage {
@@ -135,6 +143,56 @@ fn strides_reverse_and_escape() {
         Value::Int(3)
     )
     .is_err());
+}
+
+#[test]
+fn empty_views_validate_all_strides_and_offsets() {
+    assert!(reachable_span(&ints(&[0]), &[Value::Bool], Value::Int(0), Value::Int(0)).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[MAX_I64 + 1]), Value::Int(0), Value::Int(0)).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[-MAX_I64 - 1]), Value::Int(0), Value::Int(0)).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[0]), Value::Int(1), Value::Int(0)).is_err());
+    assert_eq!(
+        reachable_span(&ints(&[0]), &ints(&[0]), Value::Int(0), Value::Int(0)),
+        Ok(None)
+    );
+}
+
+#[test]
+fn huge_valid_extents_and_strides_cannot_escape_storage() {
+    // Both values fit i64, but their product greatly exceeds the storage.
+    // Keep descriptor arithmetic checked even as the domain evolves.
+    assert!(reachable_span(
+        &ints(&[MAX_I64]),
+        &ints(&[MAX_I64]),
+        Value::Int(0),
+        Value::Int(MAX_I64)
+    ).is_err());
+}
+
+#[test]
+fn zero_extent_cannot_hide_invalid_later_fields() {
+    assert!(reachable_span(
+        &ints(&[0, 2]),
+        &[Value::Int(0), Value::Bool],
+        Value::Int(0),
+        Value::Int(0)
+    ).is_err());
+    assert!(reachable_span(
+        &ints(&[0, -1]), &ints(&[0, 0]), Value::Int(0), Value::Int(0)
+    ).is_err());
+    assert!(reachable_span(
+        &ints(&[0, MAX_I64 + 1]), &ints(&[0, 0]), Value::Int(0), Value::Int(0)
+    ).is_err());
+    assert_eq!(
+        reachable_span(
+            &ints(&[0, 1]), &ints(&[MAX_I64, -MAX_I64]),
+            Value::Int(MAX_I64), Value::Int(MAX_I64)
+        ), Ok(None)
+    );
+    assert!(reachable_span(
+        &ints(&[0, 1]), &ints(&[0, 0]),
+        Value::Int(MAX_I64 + 1), Value::Int(MAX_I64)
+    ).is_err());
 }
 
 #[test]
