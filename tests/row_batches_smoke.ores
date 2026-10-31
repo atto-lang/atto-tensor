@@ -26,6 +26,25 @@ pub routine main(): void {
   Assert.equal_throws(slice[3], 6.0);
   val List<float> empty = arr[];
   Assert.true_throws(slice_rows_2d_f64_into(matrix, 3, 0, empty).is_ok());
+  // Must complete without looping two billion times over zero columns.
+  // Alias and bounds rejections still precede the no-op fast path.
+  val TensorF64 huge_zero_columns = new TensorF64(
+    arr[2000000000, 0], arr[]
+  );
+  Assert.true_throws(slice_rows_2d_f64_into(
+    huge_zero_columns, 0, 2000000000, empty
+  ).is_ok());
+  Assert.true_throws(slice_rows_2d_f64_into(
+    huge_zero_columns, 1, 2000000000, empty
+  ).is_err());
+  Assert.true_throws(slice_rows_2d_f64_into(
+    huge_zero_columns, 0, 2000000000, huge_zero_columns.values
+  ).is_err());
+  val List<float> wrong_zero_slice_storage = arr[37.0];
+  Assert.true_throws(slice_rows_2d_f64_into(
+    huge_zero_columns, 0, 2000000000, wrong_zero_slice_storage
+  ).is_err());
+  Assert.equal_throws(wrong_zero_slice_storage[0], 37.0);
 
   // All preflight errors preserve an existing output sentinel.
   val List<float> rejected = arr[99.0, 99.0, 99.0, 99.0];
