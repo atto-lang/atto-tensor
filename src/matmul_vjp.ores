@@ -78,6 +78,12 @@ pub fnc matmul_both_vjp_f64_checked_into(
       checked_numel(right.shape, matmul_vjp_len_float(output_right)).is_err(); do
     return Err("matmul VJP destination shape mismatch");
   fi
+  // Both adjoints are empty: do not iterate across huge empty outer axes.
+  // Keep descriptor, shape and alias rejection above this fast path.
+  if matmul_vjp_len_float(output_left) == 0 &&
+      matmul_vjp_len_float(output_right) == 0; do
+    return Ok(true);
+  fi
 
   // Compute dX with row-major indexing, including empty dimensions.
   for int row = 0; row < rows; row++ do
