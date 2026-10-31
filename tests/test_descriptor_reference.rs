@@ -170,6 +170,32 @@ fn huge_valid_extents_and_strides_cannot_escape_storage() {
 }
 
 #[test]
+fn zero_extent_cannot_hide_invalid_later_fields() {
+    assert!(reachable_span(
+        &ints(&[0, 2]),
+        &[Value::Int(0), Value::Bool],
+        Value::Int(0),
+        Value::Int(0)
+    ).is_err());
+    assert!(reachable_span(
+        &ints(&[0, -1]), &ints(&[0, 0]), Value::Int(0), Value::Int(0)
+    ).is_err());
+    assert!(reachable_span(
+        &ints(&[0, MAX_I64 + 1]), &ints(&[0, 0]), Value::Int(0), Value::Int(0)
+    ).is_err());
+    assert_eq!(
+        reachable_span(
+            &ints(&[0, 1]), &ints(&[MAX_I64, -MAX_I64]),
+            Value::Int(MAX_I64), Value::Int(MAX_I64)
+        ), Ok(None)
+    );
+    assert!(reachable_span(
+        &ints(&[0, 1]), &ints(&[0, 0]),
+        Value::Int(MAX_I64 + 1), Value::Int(MAX_I64)
+    ).is_err());
+}
+
+#[test]
 fn bounding_span_is_not_proof_of_disjoint_mutable_views() {
     let a = reachable_span(&ints(&[2]), &ints(&[1]), Value::Int(0), Value::Int(4))
         .unwrap()
