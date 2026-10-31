@@ -79,6 +79,14 @@ pub fnc matmul_2d_vjp_f64_checked_into(
     return Err("matmul VJP scratch shape mismatch");
   fi
 
+
+  // Both gradient destinations are empty. Even when a matrix dimension is
+  // enormous, no scalar iterations are needed. Never bypass the preceding
+  // input, shape, capacity and alias validation.
+  if num_floats(left_gradient) == 0 && num_floats(right_gradient) == 0; do
+    return Ok(true);
+  fi
+
   // Staging dA. Arithmetic may alter left_scratch on failure, but neither
   // public gradient output is touched.
   for int i=0; i<rows; i++ do
