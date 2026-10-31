@@ -74,6 +74,21 @@ pub routine main(): void {
 
   val TensorF64 zero = new TensorF64(arr[0, 3], arr[]);
   val List<float> empty_output = arr[];
+  // A zero-element output must short-circuit even with a huge outer
+  // dimension, after retaining all alias and descriptor rejection.
+  val TensorF64 huge_empty_left = new TensorF64(arr[2000000000, 0], arr[]);
+  val TensorF64 huge_empty_right = new TensorF64(arr[0, 0], arr[]);
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_empty_left, huge_empty_right, empty_output
+  ).is_ok());
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_empty_left, huge_empty_right, huge_empty_left.values
+  ).is_err());
+  val TensorF64 huge_inner_left = new TensorF64(arr[0, 2000000000], arr[]);
+  val TensorF64 huge_inner_right = new TensorF64(arr[2000000000, 0], arr[]);
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_inner_left, huge_inner_right, empty_output
+  ).is_ok());
   Assert.true_throws(validate_broadcast(zero, row, arr[0, 3], 0).is_ok());
   Assert.true_throws(broadcast_add_f64_into(zero, row, arr[0, 3], empty_output).is_ok());
 
