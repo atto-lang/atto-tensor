@@ -93,6 +93,13 @@ pub fnc slice_rows_2d_f64_into(
   if checked_numel(arr[count, columns], count_floats(output)).is_err(); do
     return Err("row slice output shape mismatch");
   fi
+  // Zero-extent slices have no values to copy. A shape like
+  // [2000000000, 0] with count=2000000000 is valid but must not
+  // spend billions of iterations in an empty inner column loop.
+  // Keep this after alias, source, row bounds, and output validation.
+  if count_floats(output) == 0; do
+    return Ok(true);
+  fi
 
   for int i = 0; i < count; i++ do
     for int column = 0; column < columns; column++ do
