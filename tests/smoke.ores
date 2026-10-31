@@ -16,6 +16,10 @@ pub routine main(): void {
   Assert.true_throws(checked_numel(arr[], 1).is_ok());
   Assert.true_throws(checked_numel(arr[2000000000, 2], 4).is_err());
   Assert.true_throws(checked_numel(arr[1, 1, 1, 1], 1).is_ok());
+  // Native rank admission must match Rust's 32-axis descriptor reference.
+  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_ok());
+  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_err());
+  Assert.true_throws(checked_numel(arr[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 0).is_err());
 
   val List<float> sums = arr[0.0, 0.0, 0.0, 0.0];
   Assert.true_throws(add_f64_into(left, right, sums).is_ok());
