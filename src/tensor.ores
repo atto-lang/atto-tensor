@@ -203,6 +203,12 @@ pub fnc matmul_2d_f64_into(
   if size.is_err(); do
     return Err("matmul output shape mismatch");
   fi
+  // A valid empty result needs no scalar iterations. Without this guard,
+  // a shape such as [2000000000,0] causes billions of empty outer loops.
+  // Keep this AFTER alias, input and output descriptor validation.
+  if count_floats(output) == 0; do
+    return Ok(true);
+  fi
   // Validate every candidate before the first mutation. The reference
   // implementation recomputes instead of allocating temporary storage.
   for int row = 0; row < rows; row++ do
