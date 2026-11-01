@@ -205,3 +205,47 @@ fn bounding_span_is_not_proof_of_disjoint_mutable_views() {
         .unwrap();
     assert!(a.0 <= b.1 && b.0 <= a.1);
 }
+
+#[test]
+fn exhaustive_small_spans_match_direct_address_enumeration() {
+    let storage = 12_i128;
+    let mut compared = 0_u64;
+    for rows in 0..=3_i128 {
+        for cols in 0..=3_i128 {
+            for stride_row in -3..=3_i128 {
+                for stride_col in -3..=3_i128 {
+                    for offset in 0..=12_i128 {
+                        let actual = reachable_span(
+                            &ints(&[rows, cols]),
+                            &ints(&[stride_row, stride_col]),
+                            Value::Int(offset),
+                            Value::Int(storage),
+                        );
+                        let mut addresses = Vec::new();
+                        for row in 0..rows {
+                            for col in 0..cols {
+                                addresses.push(offset + row * stride_row + col * stride_col);
+                            }
+                        }
+                        compared += 1;
+                        if addresses.is_empty() {
+                            assert_eq!(actual, Ok(None),
+                                "empty shape={rows}x{cols}, stride={stride_row},{stride_col}, offset={offset}");
+                            continue;
+                        }
+                        let min = *addresses.iter().min().unwrap();
+                        let max = *addresses.iter().max().unwrap();
+                        if min >= 0 && max < storage {
+                            assert_eq!(actual, Ok(Some((min, max))),
+                                "shape={rows}x{cols}, stride={stride_row},{stride_col}, offset={offset}");
+                        } else {
+                            assert!(actual.is_err(),
+                                "escaped shape={rows}x{cols}, stride={stride_row},{stride_col}, offset={offset}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(compared, 10_192);
+}
