@@ -213,3 +213,34 @@ fn exhaustive_small_spans_match_direct_address_enumeration() {
     }
     assert_eq!(compared, 10_192);
 }
+#[test]
+fn rank_zero_scalar_requires_one_real_storage_element() {
+    assert_eq!(reachable_span(&[], &[], 0, 1), Ok(Some((0, 0))));
+    assert!(reachable_span(&[], &[], 0, 0).is_err());
+    assert!(reachable_span(&[], &[], 1, 1).is_err());
+}
+
+#[test]
+fn zero_extent_still_rejects_invalid_storage_offset_and_rank() {
+    assert!(reachable_span(&ints(&[0]), &ints(&[1]), -1, 0).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[1]), 0, -1).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[1]), MAX_I64+1, MAX_I64).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[]), 0, 1).is_err());
+    assert_eq!(reachable_span(
+        &ints(&[MAX_I64, 0, MAX_I64]), &ints(&[MAX_I64, -MAX_I64, 0]),
+        MAX_I64, MAX_I64
+    ), Ok(None));
+}
+
+#[test]
+fn reversed_and_transposed_strides_reach_the_expected_cells() {
+    assert_eq!(reachable_span(
+        &ints(&[2, 2]), &ints(&[-2, 1]), 2, 4
+    ), Ok(Some((0, 3))));
+    assert_eq!(reachable_span(
+        &ints(&[2, 2]), &ints(&[1, 2]), 0, 4
+    ), Ok(Some((0, 3))));
+    assert!(reachable_span(
+        &ints(&[2, 2]), &ints(&[-2, 1]), 1, 4
+    ).is_err());
+}
