@@ -25,3 +25,15 @@ This describes the repository's intended purpose, not a verified list of impleme
 - [AttoLang](https://github.com/atto-lang)
 - [ML conformance](https://github.com/atto-lang/atto-ml-conformance)
 - [Language specification](https://github.com/atto-lang/atto-spec)
+
+## Repository ownership and contribution routing
+
+**Belongs here:** Tensor storage, shapes/strides, layout transformations, broadcasting, numerical kernels and ownership-safe memory views.
+
+**Belongs elsewhere:** Gradient graphs in atto-autograd; model APIs in atto-ml; data analysis pipelines in atto-data-science.
+
+**Security and portability boundary:** Reject shape/stride overflow, invalid views, aliasing and use-after-free; bounded allocations and target-specific overflow/precision tests.
+
+AttoLang is the public name; preserve existing Oreslang/.ores compatibility and use canonical .atto for new portable library source. This README defines scope, not feature readiness.
+
+**Acceptance:** name exact source SHA/tree, runtime/toolchain, positive and negative checks and execution receipt before claiming support. Host-only tests and empty CI steps do not prove guest execution.
