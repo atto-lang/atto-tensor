@@ -1,0 +1,28 @@
+name: oreslang-tensor integration contract (metadata only)
+on:
+  pull_request:
+  push:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Validate descriptor reference oracle
+        run: cargo test --all-targets
+      - name: Validate proposed contract only
+        run: npm test
+      - name: Run Rust tensor descriptor reference oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --edition=2021 -D warnings --test tests/test_descriptor_reference.rs -o /tmp/tensor-descriptor-reference
+          /tmp/tensor-descriptor-reference
+      - name: Confirm not actual Oreslang guest evidence
+        run: echo "CONTRACT_ONLY_NOT_GUEST_EXECUTED"
