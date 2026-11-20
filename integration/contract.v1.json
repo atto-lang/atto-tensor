@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "organization": "ores-truffle-oreslang",
+  "repository": "oreslang-tensor",
+  "mainSnapshotSha": "823825ae42797023536b711df5055998df23a704",
+  "kind": "PROPOSED_CONTRACT_NOT_IMPLEMENTATION",
+  "provides": [
+    "oreslang.tensor.cpu.v1"
+  ],
+  "requires": [],
+  "upstreams": [
+    "oreslang-common-source",
+    "oreslang-source.java",
+    "oreslang-source.llvm",
+    "oreslang-target-profiles"
+  ],
+  "fixtureIds": [
+    "tensor/add/v1",
+    "tensor/matmul/v1",
+    "tensor/shape/v1"
+  ],
+  "hostOracleRepo": "oreslang-ml-conformance",
+  "hostOracleVerified": false,
+  "guestExecution": "NOT_EXECUTED",
+  "evidence": [],
+  "nextGate": "Implement owned contiguous Array<T>, shape/stride validation, and caller-supplied-output scalar kernels in Oreslang. Compile and execute on Java/LLVM; reject aliases, overflow and non-finite values."
+}
