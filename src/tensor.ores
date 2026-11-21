@@ -34,7 +34,14 @@ pub fnc checked_numel(List<int> shape, int storage_length): Result<int, String> 
     return Err("negative storage length");
   fi
   let bool zero_dimension = false;
+  // Match the 32-axis descriptor-reference ABI even when storage is empty.
+  // Reject after 33 visited dimensions without needing shape-sized allocation.
+  let int rank = 0;
   for const dimension of shape do
+    rank = rank + 1;
+    if rank > 32; do
+      return Err("tensor rank exceeds 32");
+    fi
     if dimension < 0; do
       return Err("negative tensor dimension");
     fi
@@ -202,6 +209,12 @@ pub fnc matmul_2d_f64_into(
   val Result<int, String> size = checked_numel(arr[rows, cols], count_floats(output));
   if size.is_err(); do
     return Err("matmul output shape mismatch");
+  fi
+  // A valid empty result needs no scalar iterations. Without this guard,
+  // a shape such as [2000000000,0] causes billions of empty outer loops.
+  // Keep this AFTER alias, input and output descriptor validation.
+  if count_floats(output) == 0; do
+    return Ok(true);
   fi
   // Validate every candidate before the first mutation. The reference
   // implementation recomputes instead of allocating temporary storage.

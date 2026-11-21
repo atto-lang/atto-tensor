@@ -16,6 +16,10 @@ pub routine main(): void {
   Assert.true_throws(checked_numel(arr[], 1).is_ok());
   Assert.true_throws(checked_numel(arr[2000000000, 2], 4).is_err());
   Assert.true_throws(checked_numel(arr[1, 1, 1, 1], 1).is_ok());
+  // Native rank admission must match Rust's 32-axis descriptor reference.
+  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_ok());
+  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_err());
+  Assert.true_throws(checked_numel(arr[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 0).is_err());
 
   val List<float> sums = arr[0.0, 0.0, 0.0, 0.0];
   Assert.true_throws(add_f64_into(left, right, sums).is_ok());
@@ -74,6 +78,21 @@ pub routine main(): void {
 
   val TensorF64 zero = new TensorF64(arr[0, 3], arr[]);
   val List<float> empty_output = arr[];
+  // A zero-element output must short-circuit even with a huge outer
+  // dimension, after retaining all alias and descriptor rejection.
+  val TensorF64 huge_empty_left = new TensorF64(arr[2000000000, 0], arr[]);
+  val TensorF64 huge_empty_right = new TensorF64(arr[0, 0], arr[]);
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_empty_left, huge_empty_right, empty_output
+  ).is_ok());
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_empty_left, huge_empty_right, huge_empty_left.values
+  ).is_err());
+  val TensorF64 huge_inner_left = new TensorF64(arr[0, 2000000000], arr[]);
+  val TensorF64 huge_inner_right = new TensorF64(arr[2000000000, 0], arr[]);
+  Assert.true_throws(matmul_2d_f64_into(
+    huge_inner_left, huge_inner_right, empty_output
+  ).is_ok());
   Assert.true_throws(validate_broadcast(zero, row, arr[0, 3], 0).is_ok());
   Assert.true_throws(broadcast_add_f64_into(zero, row, arr[0, 3], empty_output).is_ok());
 
