@@ -18,6 +18,19 @@ Tensor shapes, data layouts, numerical operations, and ownership-aware memory co
 - Document input types, error behavior, shape and memory ownership requirements as applicable.
 - Distinguish CPU execution, SIMD, GPU offload, and other target-specific capabilities.
 
+## Packed AoS and SoA
+
+`src/layout.atto` exposes explicit conversions for packed homogeneous f64
+records with logical shape `[rows, fields]`. AoS stores each row together.
+SoA stores each field together. Callers provide disjoint storage through
+read and exclusive mutable borrows. The conversion checks both extents and
+storage lengths before writing, and the inverse permutation is its VJP.
+
+The layout guest fixture checks the physical order, round trip, adjoint
+identity, and unchanged storage after rejected conversions. Device
+placement uses Atto's `gpu { ... }` execution surface with its own compiler
+and device admission requirements.
+
 ## Verification
 
 Use checked-in tests, documented tolerances, and exact-commit runtime evidence. Host-only or compilation tests are not equivalent to executed AttoLang guest tests. Record backend gaps explicitly.

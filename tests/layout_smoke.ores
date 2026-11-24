@@ -1,0 +1,60 @@
+import module Assert from "std/assert";
+import module TensorLayout from "../src/layout.atto";
+
+pub routine main(): void {
+  val List<float> records = arr[1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+  val List<float> columns = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(TensorLayout.aos_to_soa_f64_into(
+    rt borrow records, 2, 3, rt mut borrow columns
+  ).is_ok());
+  val List<float> expected = arr[1.0, 4.0, 2.0, 5.0, 3.0, 6.0];
+  for int i = 0; i < 6; i++ do
+    Assert.equal_throws(columns[i], expected[i]);
+  done
+
+  val List<float> round_trip = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(TensorLayout.soa_to_aos_f64_into(
+    rt borrow columns, 2, 3, rt mut borrow round_trip
+  ).is_ok());
+  for int i = 0; i < 6; i++ do
+    Assert.equal_throws(round_trip[i], records[i]);
+  done
+
+  val List<float> cotangent = arr[2.0, -3.0, 5.0, 7.0, -11.0, 13.0];
+  val List<float> input_gradient = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(TensorLayout.soa_to_aos_f64_into(
+    rt borrow cotangent, 2, 3, rt mut borrow input_gradient
+  ).is_ok());
+  let float forward_dot = 0.0;
+  let float reverse_dot = 0.0;
+  for int i = 0; i < 6; i++ do
+    forward_dot = forward_dot + columns[i] * cotangent[i];
+    reverse_dot = reverse_dot + records[i] * input_gradient[i];
+  done
+  Assert.equal_throws(forward_dot, 80.0);
+  Assert.equal_throws(reverse_dot, forward_dot);
+
+  Assert.true_throws(TensorLayout.aos_to_soa_f64_into(
+    rt borrow records, 2, 3, rt mut borrow records
+  ).is_err());
+  Assert.true_throws(TensorLayout.aos_to_soa_f64_into(
+    rt borrow records, 6148914691236517206, 3, rt mut borrow columns
+  ).is_err());
+  Assert.true_throws(TensorLayout.aos_to_soa_f64_into(
+    rt borrow records, -1, 0, rt mut borrow columns
+  ).is_err());
+  Assert.true_throws(TensorLayout.aos_to_soa_f64_into(
+    rt borrow records, 1, 5, rt mut borrow columns
+  ).is_err());
+  for int i = 0; i < 6; i++ do
+    Assert.equal_throws(columns[i], expected[i]);
+    Assert.equal_throws(records[i], round_trip[i]);
+  done
+
+  val List<float> empty_source = arr[];
+  val List<float> empty_output = arr[];
+  Assert.true_throws(TensorLayout.aos_to_soa_f64_into(
+    rt borrow empty_source, 9223372036854775807, 0, rt mut borrow empty_output
+  ).is_ok());
+  stdio.println("ATTO_TENSOR_LAYOUT_SMOKE_PASS");
+}

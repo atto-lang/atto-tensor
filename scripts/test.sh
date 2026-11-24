@@ -47,6 +47,7 @@ run_case() {
   printf 'GUEST_CASE_PASS: %s\n' "$fixture"
 }
 
+run_case tests/layout_smoke.ores ATTO_TENSOR_LAYOUT_SMOKE_PASS
 run_case tests/smoke.ores ORES_ML_TENSOR_SMOKE_PASS
 run_case tests/row_batches_smoke.ores ORES_TENSOR_ROW_BATCH_VJP_PASS
 run_case tests/matmul_vjp_smoke.ores ORES_TENSOR_MATMUL_DUAL_VJP_PASS

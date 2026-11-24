@@ -34,6 +34,7 @@ test('a silent successful executable cannot pass guest smoke tests', { skip: !ex
 test('every synthetic fixture must emit its distinct exact marker', (t) => {
   const runner = fakeRunner(t, `#!/bin/sh
 case "$1" in
+  tests/layout_smoke.ores) echo ATTO_TENSOR_LAYOUT_SMOKE_PASS;;
   tests/smoke.ores) echo ORES_ML_TENSOR_SMOKE_PASS;;
   tests/row_batches_smoke.ores) echo ORES_TENSOR_ROW_BATCH_VJP_PASS;;
   tests/matmul_vjp_smoke.ores) echo ORES_TENSOR_MATMUL_DUAL_VJP_PASS;;
@@ -49,7 +50,7 @@ esac
 });
 
 test('unexpected stderr rejects an otherwise matching marker', (t) => {
-  const runner = fakeRunner(t, '#!/bin/sh\necho ORES_ML_TENSOR_SMOKE_PASS\necho noisy-compiler >&2\n');
+  const runner = fakeRunner(t, '#!/bin/sh\necho ATTO_TENSOR_LAYOUT_SMOKE_PASS\necho noisy-compiler >&2\n');
   const result = check(runner);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /GUEST_UNEXPECTED_STDERR/);
@@ -60,7 +61,7 @@ test('hanging synthetic guest is terminated by the per-fixture watchdog', (t) =>
   const result = check(runner, '1');
   assert.notEqual(result.status, 0);
   assert.equal(result.error, undefined, 'watchdog must end before host timeout');
-  assert.match(result.stderr, /GUEST_TIMEOUT: tests\/smoke\.ores/);
+  assert.match(result.stderr, /GUEST_TIMEOUT: tests\/layout_smoke\.ores/);
 });
 
 test('invalid timeout configuration fails before invoking a guest', (t) => {
@@ -75,5 +76,5 @@ test('nonzero guest exit never counts as a successful smoke case', (t) => {
   const runner = fakeRunner(t, '#!/bin/sh\nexit 41\n');
   const result = check(runner);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /GUEST_FAILED: tests\/smoke\.ores/);
+  assert.match(result.stderr, /GUEST_FAILED: tests\/layout_smoke\.ores/);
 });
