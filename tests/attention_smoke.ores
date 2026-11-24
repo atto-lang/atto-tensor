@@ -1,0 +1,224 @@
+import module Assert from "std/assert";
+import class TensorF64 from "../src/tensor.ores";
+import module Attention from "../src/attention.ores";
+import module TensorLayout from "../src/layout.atto";
+
+fnc near(float actual, float expected): bool {
+  return actual - expected <= 1.0e-12 && expected - actual <= 1.0e-12;
+}
+
+fnc attention_loss(
+  borrow TensorF64 query,
+  borrow TensorF64 key,
+  borrow TensorF64 value,
+  borrow TensorF64 upstream,
+  bool causal,
+  borrow mut List<float> scores,
+  borrow mut List<float> scratch,
+  borrow mut List<float> output
+): float {
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow query, rt borrow key, rt borrow value, causal,
+    rt mut borrow scores, rt mut borrow scratch, rt mut borrow output
+  ).is_ok());
+  let float total = 0.0;
+  for int i = 0; i < output.size; i++ do
+    total = total + output[i] * upstream.values[i];
+  done
+  return total;
+}
+
+fnc check_vjp(bool causal): void {
+  val TensorF64 query = new TensorF64(arr[2, 2, 2], arr[0.3, 0.8, -0.7, 0.1, 0.7, -0.4, 0.6, -0.1]);
+  val TensorF64 key = new TensorF64(arr[2, 2, 2], arr[0.2, -1.0, 0.4, 0.7, -0.3, 0.9, 0.2, 1.1]);
+  val TensorF64 value = new TensorF64(arr[2, 2, 1], arr[2.0, -1.0, 1.5, 3.0]);
+  val TensorF64 upstream = new TensorF64(arr[2, 2, 1], arr[0.5, 4.0, 1.0, -0.4]);
+  val List<float> scores = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> score_gradients = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> gradient_scratch = arr[
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0
+  ];
+  val List<float> query_gradient = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> key_gradient = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> value_gradient = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(Attention.scaled_dot_product_vjp_f64_checked_into(
+    rt borrow query, rt borrow key, rt borrow value, rt borrow upstream, causal,
+    rt mut borrow scores, rt mut borrow score_gradients, rt mut borrow gradient_scratch,
+    rt mut borrow query_gradient, rt mut borrow key_gradient, rt mut borrow value_gradient
+  ).is_ok());
+
+  val List<float> scratch = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> output = arr[0.0, 0.0, 0.0, 0.0];
+  val float epsilon = 1.0e-5;
+  for int coordinate = 0; coordinate < 20; coordinate++ do
+    let float original = 0.0;
+    let float gradient = 0.0;
+    if coordinate < 8 then
+      original = query.values[coordinate];
+      query.values[coordinate] = original + epsilon;
+      gradient = query_gradient[coordinate];
+    elif coordinate < 16 then
+      original = key.values[coordinate - 8];
+      key.values[coordinate - 8] = original + epsilon;
+      gradient = key_gradient[coordinate - 8];
+    else
+      original = value.values[coordinate - 16];
+      value.values[coordinate - 16] = original + epsilon;
+      gradient = value_gradient[coordinate - 16];
+    fi
+    val float plus = attention_loss(
+      rt borrow query, rt borrow key, rt borrow value, rt borrow upstream, causal,
+      rt mut borrow scores, rt mut borrow scratch, rt mut borrow output
+    );
+    if coordinate < 8 then
+      query.values[coordinate] = original - epsilon;
+    elif coordinate < 16 then
+      key.values[coordinate - 8] = original - epsilon;
+    else
+      value.values[coordinate - 16] = original - epsilon;
+    fi
+    val float minus = attention_loss(
+      rt borrow query, rt borrow key, rt borrow value, rt borrow upstream, causal,
+      rt mut borrow scores, rt mut borrow scratch, rt mut borrow output
+    );
+    if coordinate < 8 then
+      query.values[coordinate] = original;
+    elif coordinate < 16 then
+      key.values[coordinate - 8] = original;
+    else
+      value.values[coordinate - 16] = original;
+    fi
+    val float difference = ((plus - minus) / (2.0 * epsilon)) - gradient;
+    Assert.true_throws(difference <= 1.0e-9 && difference >= -1.0e-9);
+  done
+}
+
+pub routine main(): void {
+  val TensorF64 query = new TensorF64(arr[2, 2, 2], arr[0.0, 0.0, 1.4142135623730951, 0.0, 0.0, 0.0, -1.4142135623730951, 0.0]);
+  val TensorF64 key = new TensorF64(arr[2, 3, 2], arr[1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 0.0]);
+  val List<float> columnar = arr[10.0, 20.0, 30.0, 100.0, 200.0, 300.0, 1.0, 4.0, 9.0, 10.0, 40.0, 90.0];
+  val List<float> row_major = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(TensorLayout.soa_to_aos_f64_into(rt borrow columnar, 6, 2, rt mut borrow row_major).is_ok());
+  val TensorF64 value = new TensorF64(arr[2, 3, 2], row_major);
+  val List<float> scores = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> output = arr[91.0, 91.0, 91.0, 91.0, 91.0, 91.0, 91.0, 91.0];
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow query, rt borrow key, rt borrow value, false, rt mut borrow scores, rt mut borrow scratch, rt mut borrow output
+  ).is_ok());
+  Assert.true_throws(near(output[0], 20.0));
+  Assert.true_throws(near(output[1], 4.666666666666667));
+  Assert.true_throws(near(output[2], 14.247896173955585));
+  Assert.true_throws(near(output[3], 2.4544299985274365));
+  Assert.true_throws(near(output[4], 200.0));
+  Assert.true_throws(near(output[6], 257.5210382604442));
+
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow query, rt borrow key, rt borrow value, true, rt mut borrow scores, rt mut borrow scratch, rt mut borrow output
+  ).is_ok());
+  Assert.equal_throws(output[0], 10.0);
+  Assert.equal_throws(output[1], 1.0);
+  Assert.true_throws(near(output[2], 12.689414213699951));
+  Assert.equal_throws(output[4], 100.0);
+  Assert.equal_throws(output[5], 10.0);
+  Assert.true_throws(near(output[6], 173.1058578630005));
+  Assert.equal_throws(scores[2], 0.0);
+  Assert.equal_throws(scores[5], 0.0);
+  Assert.equal_throws(scores[7], 0.0);
+  Assert.equal_throws(scores[11], 0.0);
+
+  val TensorF64 wrong_key = new TensorF64(arr[1, 3, 2], arr[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow query, rt borrow wrong_key, rt borrow value, false, rt mut borrow scores, rt mut borrow scratch, rt mut borrow output
+  ).is_err());
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow query, rt borrow key, rt borrow value, false, rt mut borrow scores, rt mut borrow output, rt mut borrow output
+  ).is_err());
+  Assert.equal_throws(output[4], 100.0);
+
+  val TensorF64 single_query = new TensorF64(arr[1, 1], arr[1.0e308]);
+  val TensorF64 two_queries = new TensorF64(arr[2, 1], arr[1.0, 1.0e308]);
+  val TensorF64 sharp_key = new TensorF64(arr[2, 1], arr[1.0, 2.0]);
+  val TensorF64 sharp_value = new TensorF64(arr[2, 1], arr[3.0, 4.0]);
+  val List<float> late_scores = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> late_scratch = arr[0.0, 0.0];
+  val List<float> late_output = arr[77.0, 78.0];
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow two_queries, rt borrow sharp_key, rt borrow sharp_value, false,
+    rt mut borrow late_scores, rt mut borrow late_scratch, rt mut borrow late_output
+  ).is_err());
+  Assert.equal_throws(late_output[0], 77.0);
+  Assert.equal_throws(late_output[1], 78.0);
+
+  // Masked keys must not be evaluated, even when their dot would overflow.
+  val List<float> tiny_scores = arr[0.0, 0.0];
+  val List<float> tiny_scratch = arr[0.0];
+  val List<float> tiny_output = arr[77.0];
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow single_query, rt borrow sharp_key, rt borrow sharp_value, true,
+    rt mut borrow tiny_scores, rt mut borrow tiny_scratch, rt mut borrow tiny_output
+  ).is_ok());
+  Assert.equal_throws(tiny_output[0], 3.0);
+  Assert.equal_throws(tiny_scores[1], 0.0);
+
+  val TensorF64 largest = new TensorF64(arr[2, 1], arr[1.7976931348623157e308, 1.7976931348623157e308]);
+  val TensorF64 zero_query = new TensorF64(arr[1, 1], arr[0.0]);
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow zero_query, rt borrow sharp_key, rt borrow largest, false,
+    rt mut borrow tiny_scores, rt mut borrow tiny_scratch, rt mut borrow tiny_output
+  ).is_ok());
+  Assert.equal_throws(tiny_output[0], 1.7976931348623157e308);
+
+  val TensorF64 no_queries = new TensorF64(arr[0, 1], arr[]);
+  val TensorF64 no_keys = new TensorF64(arr[0, 1], arr[]);
+  val List<float> empty_scores = arr[];
+  val List<float> empty_scratch = arr[];
+  val List<float> empty_output = arr[];
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow no_queries, rt borrow no_keys, rt borrow no_keys, false,
+    rt mut borrow empty_scores, rt mut borrow empty_scratch, rt mut borrow empty_output
+  ).is_ok());
+  Assert.true_throws(Attention.scaled_dot_product_f64_into(
+    rt borrow single_query, rt borrow no_keys, rt borrow no_keys, false,
+    rt mut borrow empty_scores, rt mut borrow empty_scratch, rt mut borrow empty_output
+  ).is_err());
+
+  check_vjp(false);
+  check_vjp(true);
+
+  // Row 0 has a finite dP. A subsequent row overflows before any of the
+  // three caller-visible buffers have been published.
+  val TensorF64 value_with_large_entry = new TensorF64(arr[2, 1], arr[1.0e308, 4.0]);
+  val TensorF64 large_upstream = new TensorF64(arr[2, 1], arr[0.1, 2.0]);
+  val TensorF64 equal_queries = new TensorF64(arr[2, 1], arr[0.0, 0.0]);
+  val List<float> score_vjp = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> combined = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> query_gradient = arr[81.0, 82.0];
+  val List<float> key_gradient = arr[83.0, 84.0];
+  val List<float> value_gradient = arr[85.0, 86.0];
+  Assert.true_throws(Attention.scaled_dot_product_vjp_f64_checked_into(
+    rt borrow equal_queries, rt borrow sharp_key, rt borrow value_with_large_entry, rt borrow large_upstream, false,
+    rt mut borrow late_scores, rt mut borrow score_vjp, rt mut borrow combined,
+    rt mut borrow query_gradient, rt mut borrow key_gradient, rt mut borrow value_gradient
+  ).is_err());
+  Assert.equal_throws(query_gradient[1], 82.0);
+  Assert.equal_throws(key_gradient[1], 84.0);
+  Assert.equal_throws(value_gradient[1], 86.0);
+
+  val List<float> no_query_gradient = arr[];
+  val List<float> empty_gradient_scores = arr[];
+  val List<float> key_value_scratch = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(Attention.scaled_dot_product_vjp_f64_checked_into(
+    rt borrow no_queries, rt borrow sharp_key, rt borrow sharp_value, rt borrow no_queries, false,
+    rt mut borrow empty_scores, rt mut borrow empty_gradient_scores, rt mut borrow key_value_scratch,
+    rt mut borrow no_query_gradient, rt mut borrow key_gradient, rt mut borrow value_gradient
+  ).is_ok());
+  Assert.equal_throws(key_gradient[0], 0.0);
+  Assert.equal_throws(key_gradient[1], 0.0);
+  Assert.equal_throws(value_gradient[0], 0.0);
+  Assert.equal_throws(value_gradient[1], 0.0);
+
+  stdio.println("ATTO_TENSOR_ATTENTION_SMOKE_PASS");
+}

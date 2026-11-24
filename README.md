@@ -27,6 +27,22 @@ expose broadcasting, gradient reduction, row gather and slice, and matrix
 gradients. Pass inputs with `rt borrow` and caller-owned scratch and output
 storage with `rt mut borrow`. Tensors use finite f64 values in row-major order.
 
+`Softmax.softmax_last_axis_f64_into` normalizes the last axis of any
+positive-rank tensor, with a maximum shift before exponentiation. Its checked
+VJP uses the same input shape and recomputes the probabilities from the logits.
+[Softmax numerical analysis](https://arxiv.org/abs/1909.03469)
+
+`Attention.scaled_dot_product_f64_into` accepts queries shaped
+`[..., queries, depth]`, keys shaped `[..., keys, depth]`, and values shaped
+`[..., keys, channels]`. The leading batch and head dimensions must match.
+It writes `[..., queries, channels]` and accepts a causal flag that limits
+each query to keys at or before its position within that batch. Score scratch
+has shape `[..., queries, keys]`. The checked VJP publishes the three input
+gradients together and needs scratch for scores, score gradients, and the
+concatenated query, key, and value gradients. The forward and reverse kernels
+use caller-owned, disjoint row-major buffers.
+[Scaled dot-product attention](https://arxiv.org/abs/1706.03762)
+
 ## Packed AoS and SoA
 
 `src/layout.atto` exposes explicit conversions for packed homogeneous f64

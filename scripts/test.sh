@@ -65,4 +65,6 @@ run_case tests/smoke.ores ORES_ML_TENSOR_SMOKE_PASS
 run_case tests/row_batches_smoke.ores ORES_TENSOR_ROW_BATCH_VJP_PASS
 run_case tests/matmul_vjp_smoke.ores ORES_TENSOR_MATMUL_DUAL_VJP_PASS
 run_case tests/matmul_two_sided_vjp_smoke.ores ORES_MATMUL_TWO_SIDED_VJP_PASS
+run_case tests/softmax_smoke.ores ATTO_TENSOR_SOFTMAX_SMOKE_PASS
+run_case tests/attention_smoke.ores ATTO_TENSOR_ATTENTION_SMOKE_PASS
 run_rejection tests/projected_alias_reject.ores 'mutable projected borrows need path-exclusive loan tracking'
