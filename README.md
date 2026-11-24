@@ -1,15 +1,51 @@
-# Oreslang Tensor
+> **AI agent instructions (organization-wide):** Before working on code, issues, or pull requests, read and follow the [organization `AGENTS.md`](https://github.com/atto-lang/.github/blob/main/AGENTS.md), including its **merge-first stealth-development policy**. Honor any repository-local `AGENTS.md`, explicit holds, and GitHub-enforced rules.
 
-Native Oreslang tensor semantics and CPU reference kernels. The first tranche uses plain `.ores` source and `List<T>` backing storage; this is not yet an ownership-safe contiguous `Array<T>` implementation or an accelerated backend.
+# atto-tensor
 
-## Scope (P0)
-- Checked shape/product and contiguous tensor descriptors.
-- Scalar reference kernels with caller-supplied outputs.
-- No Python/Java numerical implementation in public tensor algorithms.
-- Unsafe aliases, unsupported devices, overflow and shape mismatches must fail closed.
+Tensor data structures and numerical computation primitives for AttoLang.
 
-See `docs/CONTRACT.md` and `src/tensor.ores` after bootstrap PR.
+## Naming migration and language authority
 
-## No-Python policy
+This repository is maintained at [atto-lang/atto-tensor](https://github.com/atto-lang/atto-tensor); use `https://github.com/atto-lang/atto-tensor.git` for Git remotes and canonical `.atto` source examples. The normative language contract is [atto-spec](https://github.com/atto-lang/atto-spec), with executable guest evidence tracked by [atto-platform-conformance](https://github.com/atto-lang/atto-platform-conformance). Follow current ownership, borrowing, effects, actor, and syntax rules there; do not infer implemented features from a README or unexecuted CI.
 
-Python source, scripts, tests, notebooks, package manifests, runtime dependencies, and CI tooling are not permitted in this repository. Host-side tooling and reference tests must be implemented in Rust with equivalent behavior and coverage. Documentation may mention Python only to describe this policy or historical migration work.
+## Scope
+
+Tensor shapes, data layouts, numerical operations, and ownership-aware memory contracts.
+
+## API and portability principles
+
+- Specify numerical/semantic behavior before assuming support on every backend.
+- Document input types, error behavior, shape and memory ownership requirements as applicable.
+- Distinguish CPU execution, SIMD, GPU offload, and other target-specific capabilities.
+
+## Verification
+
+Use checked-in tests, documented tolerances, and exact-commit runtime evidence. Host-only or compilation tests are not equivalent to executed AttoLang guest tests. Record backend gaps explicitly.
+
+## Development status
+
+This describes the repository's intended purpose, not a verified list of implemented features. Refer to checked-in code and CI for current functionality and validated commands.
+
+## Related
+
+- [AttoLang](https://github.com/atto-lang)
+- [ML conformance](https://github.com/atto-lang/atto-ml-conformance)
+- [Language specification](https://github.com/atto-lang/atto-spec)
+
+## Repository ownership and contribution routing
+
+**Belongs here:** Tensor storage, shapes/strides, layout transformations, broadcasting, numerical kernels and ownership-safe memory views.
+
+**Belongs elsewhere:** Gradient graphs in atto-autograd; model APIs in atto-ml; data analysis pipelines in atto-data-science.
+
+**Security and portability boundary:** Reject shape/stride overflow, invalid views, aliasing and use-after-free; bounded allocations and target-specific overflow/precision tests.
+
+AttoLang is the canonical project name; new source, examples and documentation use `.atto` and the `atto-lang` repository organization. This README defines scope, not feature readiness.
+
+**Acceptance:** name exact source SHA/tree, runtime/toolchain, positive and negative checks and execution receipt before claiming support. Host-only tests and empty CI steps do not prove guest execution.
+
+## Host reference: shape v0 (not an Atto runtime implementation)
+
+`reference/shape_rules.py` defines bounded shape validation, scalar/zero-axis element counts, row-major strides, trailing-axis broadcast compatibility and broadcast index mapping. It rejects booleans as dimensions, negative dimensions, rank over 64 and signed-64-bit element-count overflow. This establishes deterministic expected behavior for future Atto tensor backends; no CPU/GPU/SIMD Atto guest execution is claimed.
+
+Run `python3 -m unittest discover -s tests -v` from the repository root to check the Python reference examples. Before porting, align error representation and resource bounds across compilers.

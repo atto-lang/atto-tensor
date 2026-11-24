@@ -169,3 +169,78 @@ fn bounding_span_is_not_proof_of_disjoint_mutable_views() {
         .unwrap();
     assert!(a.0 <= b.1 && b.0 <= a.1);
 }
+
+#[test]
+fn exhaustive_small_spans_match_direct_address_enumeration() {
+    let storage = 12_i128;
+    let mut compared = 0_u64;
+    for rows in 0..=3_i128 {
+        for cols in 0..=3_i128 {
+            for stride_row in -3..=3_i128 {
+                for stride_col in -3..=3_i128 {
+                    for offset in 0..=12_i128 {
+                        let actual = reachable_span(
+                            &ints(&[rows, cols]),
+                            &ints(&[stride_row, stride_col]),
+                            offset,
+                            storage,
+                        );
+                        let mut addresses = Vec::new();
+                        for row in 0..rows {
+                            for col in 0..cols {
+                                addresses.push(offset + row * stride_row + col * stride_col);
+                            }
+                        }
+                        compared += 1;
+                        if addresses.is_empty() {
+                            assert_eq!(actual, Ok(None),
+                                "empty shape={rows}x{cols}, stride={stride_row},{stride_col}, offset={offset}");
+                            continue;
+                        }
+                        let min = *addresses.iter().min().unwrap();
+                        let max = *addresses.iter().max().unwrap();
+                        if min >= 0 && max < storage {
+                            assert_eq!(actual, Ok(Some((min, max))),
+                                "shape={rows}x{cols}, stride={stride_row},{stride_col}, offset={offset}");
+                        } else {
+                            assert!(actual.is_err(),
+                                "escaped shape={rows}x{cols}, stride={stride_row},{stride_col}, offset={offset}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(compared, 10_192);
+}
+#[test]
+fn rank_zero_scalar_requires_one_real_storage_element() {
+    assert_eq!(reachable_span(&[], &[], 0, 1), Ok(Some((0, 0))));
+    assert!(reachable_span(&[], &[], 0, 0).is_err());
+    assert!(reachable_span(&[], &[], 1, 1).is_err());
+}
+
+#[test]
+fn zero_extent_still_rejects_invalid_storage_offset_and_rank() {
+    assert!(reachable_span(&ints(&[0]), &ints(&[1]), -1, 0).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[1]), 0, -1).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[1]), MAX_I64+1, MAX_I64).is_err());
+    assert!(reachable_span(&ints(&[0]), &ints(&[]), 0, 1).is_err());
+    assert_eq!(reachable_span(
+        &ints(&[MAX_I64, 0, MAX_I64]), &ints(&[MAX_I64, -MAX_I64, 0]),
+        MAX_I64, MAX_I64
+    ), Ok(None));
+}
+
+#[test]
+fn reversed_and_transposed_strides_reach_the_expected_cells() {
+    assert_eq!(reachable_span(
+        &ints(&[2, 2]), &ints(&[-2, 1]), 2, 4
+    ), Ok(Some((0, 3))));
+    assert_eq!(reachable_span(
+        &ints(&[2, 2]), &ints(&[1, 2]), 0, 4
+    ), Ok(Some((0, 3))));
+    assert!(reachable_span(
+        &ints(&[2, 2]), &ints(&[-2, 1]), 1, 4
+    ).is_err());
+}
