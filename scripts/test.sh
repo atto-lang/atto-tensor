@@ -47,8 +47,22 @@ run_case() {
   printf 'GUEST_CASE_PASS: %s\n' "$fixture"
 }
 
+run_rejection() {
+  fixture="$1"
+  diagnostic="$2"
+  guest_rc=0
+  timeout -k 2s "${timeout_sec}s" "$ORESLANG_BIN" "$fixture" >"$tmpdir/stdout" 2>"$tmpdir/stderr" || guest_rc="$?"
+  if [ "$guest_rc" -ne 1 ] || [ -s "$tmpdir/stdout" ] || ! grep -Fq "$diagnostic" "$tmpdir/stderr"; then
+    echo "GUEST_REJECTION_MISMATCH: $fixture (exit=$guest_rc)" >&2
+    cat "$tmpdir/stderr" >&2
+    exit 1
+  fi
+  printf 'GUEST_REJECTION_PASS: %s\n' "$fixture"
+}
+
 run_case tests/layout_smoke.ores ATTO_TENSOR_LAYOUT_SMOKE_PASS
 run_case tests/smoke.ores ORES_ML_TENSOR_SMOKE_PASS
 run_case tests/row_batches_smoke.ores ORES_TENSOR_ROW_BATCH_VJP_PASS
 run_case tests/matmul_vjp_smoke.ores ORES_TENSOR_MATMUL_DUAL_VJP_PASS
 run_case tests/matmul_two_sided_vjp_smoke.ores ORES_MATMUL_TWO_SIDED_VJP_PASS
+run_rejection tests/projected_alias_reject.ores 'mutable projected borrows need path-exclusive loan tracking'

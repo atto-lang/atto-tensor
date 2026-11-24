@@ -39,10 +39,13 @@ case "$1" in
   tests/row_batches_smoke.ores) echo ORES_TENSOR_ROW_BATCH_VJP_PASS;;
   tests/matmul_vjp_smoke.ores) echo ORES_TENSOR_MATMUL_DUAL_VJP_PASS;;
   tests/matmul_two_sided_vjp_smoke.ores) echo ORES_MATMUL_TWO_SIDED_VJP_PASS;;
+  tests/projected_alias_reject.ores) echo 'mutable projected borrows need path-exclusive loan tracking' >&2; exit 1;;
   *) exit 23;;
 esac
 `);
-  assert.equal(check(runner).status, 0);
+  const passed = check(runner);
+  assert.equal(passed.status, 0);
+  assert.match(passed.stdout, /GUEST_REJECTION_PASS: tests\/projected_alias_reject\.ores/);
   const wrong = fakeRunner(t, '#!/bin/sh\necho UNRELATED_SUCCESS\n');
   const rejected = check(wrong);
   assert.notEqual(rejected.status, 0);

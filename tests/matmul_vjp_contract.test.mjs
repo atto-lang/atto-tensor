@@ -34,8 +34,8 @@ test("pure Oreslang source checks both output aliases and input aliasing",()=>{
   assert.match(source,/left_scratch is right_scratch/);
   assert.match(source,/left_gradient is right_gradient/);
   assert.match(source,/right_gradient is upstream.values/);
-  assert.match(source,/checked_numel\(left.shape/);
-  assert.match(source,/checked_numel\(right.shape/);
+  assert.match(source,/checked_numel\(rt borrow left\.shape/);
+  assert.match(source,/checked_numel\(rt borrow right\.shape/);
   assert.match(fixture,/ORES_TENSOR_MATMUL_DUAL_VJP_PASS/);
 });
 test("both scratch gradients stage before either output publication",()=>{
@@ -122,9 +122,9 @@ test("matrix VJP rejects 2-output alias and alias to each input backing",()=>{
 test("huge zero-extent axes cannot reach VJP scalar loops",()=>{
   // HOST-ONLY structural guard: real Oreslang execution is a separate gate.
   const alias=source.indexOf("if left_scratch is right_scratch");
-  const inputCheck=source.indexOf("if validate_tensor(left).is_err()");
-  const scratchSize=source.indexOf("if num_floats(left_scratch) != num_floats(left_gradient)");
-  const emptyGuard=source.indexOf("if num_floats(left_gradient) == 0 && num_floats(right_gradient) == 0");
+  const inputCheck=source.indexOf("if TensorOps.validate_tensor(rt borrow left).is_err()");
+  const scratchSize=source.indexOf("if left_scratch.size != left_gradient.size");
+  const emptyGuard=source.indexOf("if left_gradient.size == 0 && right_gradient.size == 0");
   const firstLoop=source.indexOf("for int i=0; i<rows; i++ do");
   const secondLoop=source.indexOf("for int k=0; k<inner; k++ do",firstLoop);
   assert(alias>=0 && inputCheck>alias && scratchSize>inputCheck);
@@ -132,7 +132,7 @@ test("huge zero-extent axes cannot reach VJP scalar loops",()=>{
   assert.match(source.slice(emptyGuard,firstLoop),/return Ok\(true\);/);
   assert.match(fixture,/huge_zero_left.*2000000000,0/);
   assert.match(fixture,/huge_inner_right.*2000000000,0/);
-  assert.match(fixture,/huge_zero_as,huge_zero_bs,huge_zero_as,huge_zero_db/);
+  assert.match(fixture,/huge_zero_as,rt mut borrow huge_zero_bs,rt mut borrow huge_zero_as,rt mut borrow huge_zero_db/);
   for(const [m,k,n] of [[2000000000,0,0],[0,2000000000,0]]){
     // Both dA and dB have exactly zero elements, with no allocation.
     assert.equal(m*k,0);

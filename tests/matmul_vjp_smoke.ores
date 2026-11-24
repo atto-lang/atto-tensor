@@ -1,8 +1,8 @@
 // Executable guest acceptance for both derivatives of C = A@B.
 // Host-only tests must never claim this code executed without a real runner.
 import module Assert from "std/assert";
-import class TensorF64 from "../src/tensor";
-import fnc matmul_2d_vjp_f64_checked_into from "../src/matmul_vjp";
+import class TensorF64 from "../src/tensor.ores";
+import module MatmulVjp from "../src/matmul_vjp.ores";
 
 pub routine main(): void {
   val TensorF64 a = new TensorF64(
@@ -19,8 +19,8 @@ pub routine main(): void {
   val List<float> da = arr[99.0,99.0,99.0,99.0,99.0,99.0];
   val List<float> db = arr[99.0,99.0,99.0,99.0,99.0,99.0];
 
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    a,b,upstream,a_scratch,b_scratch,da,db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow a,rt borrow b,rt borrow upstream,rt mut borrow a_scratch,rt mut borrow b_scratch,rt mut borrow da,rt mut borrow db
   ).is_ok());
   Assert.equal_throws(da[0],23.0);
   Assert.equal_throws(da[1],29.0);
@@ -36,16 +36,16 @@ pub routine main(): void {
   Assert.equal_throws(db[5],30.0);
 
   // Output aliases are rejected, and the successful result remains intact.
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    a,b,upstream,a_scratch,b_scratch,da,da
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow a,rt borrow b,rt borrow upstream,rt mut borrow a_scratch,rt mut borrow b_scratch,rt mut borrow da,rt mut borrow da
   ).is_err());
   Assert.equal_throws(da[0],23.0);
   Assert.equal_throws(db[0],13.0);
   val TensorF64 bad_upstream = new TensorF64(
     arr[1,4], arr[1.0,2.0,3.0,4.0]
   );
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    a,b,bad_upstream,a_scratch,b_scratch,da,db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow a,rt borrow b,rt borrow bad_upstream,rt mut borrow a_scratch,rt mut borrow b_scratch,rt mut borrow da,rt mut borrow db
   ).is_err());
   Assert.equal_throws(da[5],81.0);
   Assert.equal_throws(db[5],30.0);
@@ -59,9 +59,9 @@ pub routine main(): void {
   val List<float> tiny_b_scratch=arr[0.0];
   val List<float> tiny_da=arr[73.0];
   val List<float> tiny_db=arr[74.0];
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    huge_left,huge_right,huge_upstream,
-    tiny_a_scratch,tiny_b_scratch,tiny_da,tiny_db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow huge_left,rt borrow huge_right,rt borrow huge_upstream,
+    rt mut borrow tiny_a_scratch,rt mut borrow tiny_b_scratch,rt mut borrow tiny_da,rt mut borrow tiny_db
   ).is_err());
   Assert.equal_throws(tiny_da[0],73.0);
   Assert.equal_throws(tiny_db[0],74.0);
@@ -76,10 +76,10 @@ pub routine main(): void {
   val List<float> right_only_b_scratch = arr[0.0];
   val List<float> right_only_da = arr[41.0];
   val List<float> right_only_db = arr[42.0];
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    right_only_left,right_only_right,right_only_upstream,
-    right_only_a_scratch,right_only_b_scratch,
-    right_only_da,right_only_db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow right_only_left,rt borrow right_only_right,rt borrow right_only_upstream,
+    rt mut borrow right_only_a_scratch,rt mut borrow right_only_b_scratch,
+    rt mut borrow right_only_da,rt mut borrow right_only_db
   ).is_err());
   Assert.equal_throws(right_only_da[0],41.0);
   Assert.equal_throws(right_only_db[0],42.0);
@@ -94,9 +94,9 @@ pub routine main(): void {
   val List<float> empty_b_scratch = arr[];
   val List<float> empty_da = arr[];
   val List<float> empty_db = arr[];
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    empty_left,empty_right,nonempty_upstream,
-    empty_a_scratch,empty_b_scratch,empty_da,empty_db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow empty_left,rt borrow empty_right,rt borrow nonempty_upstream,
+    rt mut borrow empty_a_scratch,rt mut borrow empty_b_scratch,rt mut borrow empty_da,rt mut borrow empty_db
   ).is_ok());
 
   // These shapes have zero gradient elements but billion-scale axes.
@@ -109,13 +109,13 @@ pub routine main(): void {
   val List<float> huge_zero_bs = arr[];
   val List<float> huge_zero_da = arr[];
   val List<float> huge_zero_db = arr[];
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    huge_zero_left,huge_zero_right,huge_zero_upstream,
-    huge_zero_as,huge_zero_bs,huge_zero_da,huge_zero_db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow huge_zero_left,rt borrow huge_zero_right,rt borrow huge_zero_upstream,
+    rt mut borrow huge_zero_as,rt mut borrow huge_zero_bs,rt mut borrow huge_zero_da,rt mut borrow huge_zero_db
   ).is_ok());
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    huge_zero_left,huge_zero_right,huge_zero_upstream,
-    huge_zero_as,huge_zero_bs,huge_zero_as,huge_zero_db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow huge_zero_left,rt borrow huge_zero_right,rt borrow huge_zero_upstream,
+    rt mut borrow huge_zero_as,rt mut borrow huge_zero_bs,rt mut borrow huge_zero_as,rt mut borrow huge_zero_db
   ).is_err());
 
   // Both output shapes can also be zero while the inner dimension is huge.
@@ -123,9 +123,9 @@ pub routine main(): void {
   val TensorF64 huge_inner_left = new TensorF64(arr[0,2000000000],arr[]);
   val TensorF64 huge_inner_right = new TensorF64(arr[2000000000,0],arr[]);
   val TensorF64 huge_inner_upstream = new TensorF64(arr[0,0],arr[]);
-  Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-    huge_inner_left,huge_inner_right,huge_inner_upstream,
-    huge_zero_as,huge_zero_bs,huge_zero_da,huge_zero_db
+  Assert.true_throws(MatmulVjp.matmul_2d_vjp_f64_checked_into(
+    rt borrow huge_inner_left,rt borrow huge_inner_right,rt borrow huge_inner_upstream,
+    rt mut borrow huge_zero_as,rt mut borrow huge_zero_bs,rt mut borrow huge_zero_da,rt mut borrow huge_zero_db
   ).is_ok());
 
   stdio.println("ORES_TENSOR_MATMUL_DUAL_VJP_PASS");

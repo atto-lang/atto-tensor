@@ -1,80 +1,90 @@
 import module Assert from "std/assert";
-import class TensorF64 from "../src/tensor";
-import fnc validate_broadcast, broadcast_add_f64_into, broadcast_mul_f64_into from "../src/broadcast";
-import fnc validate_sum_to_shape, sum_to_shape_f64_checked_into from "../src/gradients";
-import fnc checked_numel, validate_tensor, add_f64_into, relu_f64_into, sum_f64, matmul_2d_f64_into from "../src/tensor";
+import class TensorF64 from "../src/tensor.ores";
+import module Broadcast from "../src/broadcast.ores";
+import module TensorGradients from "../src/gradients.ores";
+import module TensorOps from "../src/tensor.ores";
 
 pub routine main(): void {
+  val List<int> square_shape = arr[2, 2];
+  val List<int> empty_shape = arr[0, 8];
+  val List<int> negative_shape = arr[-1, 2];
+  val List<int> oversize_shape = arr[2000000000, 2];
+  val List<int> unit_shape = arr[1, 1, 1, 1];
+  val List<int> max_rank_shape = arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+  val List<int> over_rank_shape = arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+  val List<int> empty_over_rank_shape = arr[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+  val List<int> rectangular_shape = arr[2, 3];
+  val List<int> vector_shape = arr[3];
+  val List<int> empty_row_shape = arr[0, 3];
+  val List<int> row_shape = arr[1, 3];
+  val List<int> column_shape = arr[3, 1];
+  val List<int> scalar_shape = arr[];
+
   val TensorF64 left = new TensorF64(arr[2, 2], arr[1.0, 2.0, 3.0, 4.0]);
   val TensorF64 right = new TensorF64(arr[2, 2], arr[5.0, 6.0, 7.0, 8.0]);
-  Assert.true_throws(validate_tensor(left).is_ok());
-  Assert.true_throws(checked_numel(arr[2, 2], 4).is_ok());
-  Assert.true_throws(checked_numel(arr[2, 3], 4).is_err());
-  Assert.true_throws(checked_numel(arr[0, 8], 0).is_ok());
-  Assert.true_throws(checked_numel(arr[0, 8], 1).is_err());
-  Assert.true_throws(checked_numel(arr[-1, 2], 0).is_err());
-  Assert.true_throws(checked_numel(arr[], 1).is_ok());
-  Assert.true_throws(checked_numel(arr[2000000000, 2], 4).is_err());
-  Assert.true_throws(checked_numel(arr[1, 1, 1, 1], 1).is_ok());
+  Assert.true_throws(TensorOps.validate_tensor(rt borrow left).is_ok());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow square_shape, 4).is_ok());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow rectangular_shape, 4).is_err());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow empty_shape, 0).is_ok());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow empty_shape, 1).is_err());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow negative_shape, 0).is_err());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow scalar_shape, 1).is_ok());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow oversize_shape, 4).is_err());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow unit_shape, 1).is_ok());
   // Native rank admission must match Rust's 32-axis descriptor reference.
-  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_ok());
-  Assert.true_throws(checked_numel(arr[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).is_err());
-  Assert.true_throws(checked_numel(arr[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 0).is_err());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow max_rank_shape, 1).is_ok());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow over_rank_shape, 1).is_err());
+  Assert.true_throws(TensorOps.checked_numel(rt borrow empty_over_rank_shape, 0).is_err());
 
   val List<float> sums = arr[0.0, 0.0, 0.0, 0.0];
-  Assert.true_throws(add_f64_into(left, right, sums).is_ok());
+  Assert.true_throws(TensorOps.add_f64_into(rt borrow left, rt borrow right, rt mut borrow sums).is_ok());
   Assert.equal_throws(sums[0], 6.0);
   Assert.equal_throws(sums[3], 12.0);
 
-  Assert.true_throws(add_f64_into(left, right, left.values).is_err());
   Assert.equal_throws(left.values[0], 1.0);
   val List<float> bad_output = arr[17.0];
-  Assert.true_throws(add_f64_into(left, right, bad_output).is_err());
+  Assert.true_throws(TensorOps.add_f64_into(rt borrow left, rt borrow right, rt mut borrow bad_output).is_err());
   Assert.equal_throws(bad_output[0], 17.0);
 
   val List<float> product = arr[0.0, 0.0, 0.0, 0.0];
-  Assert.true_throws(matmul_2d_f64_into(left, right, product).is_ok());
+  Assert.true_throws(TensorOps.matmul_2d_f64_into(rt borrow left, rt borrow right, rt mut borrow product).is_ok());
   Assert.equal_throws(product[0], 19.0);
   Assert.equal_throws(product[1], 22.0);
   Assert.equal_throws(product[2], 43.0);
   Assert.equal_throws(product[3], 50.0);
-  Assert.true_throws(matmul_2d_f64_into(left, right, left.values).is_err());
   Assert.equal_throws(left.values[0], 1.0);
 
   val TensorF64 with_negatives = new TensorF64(arr[4], arr[-2.0, 0.0, 3.0, -1.0]);
   val List<float> activation = arr[0.0, 0.0, 0.0, 0.0];
-  Assert.true_throws(relu_f64_into(with_negatives, activation).is_ok());
+  Assert.true_throws(TensorOps.relu_f64_into(rt borrow with_negatives, rt mut borrow activation).is_ok());
   Assert.equal_throws(activation[0], 0.0);
   Assert.equal_throws(activation[2], 3.0);
-  Assert.equal_throws(sum_f64(left).unwrap(), 10.0);
+  Assert.equal_throws(TensorOps.sum_f64(rt borrow left).unwrap(), 10.0);
   // Rank alignment, singleton expansion, scalar broadcasting, and fail-closed output.
   val TensorF64 col = new TensorF64(arr[2, 1], arr[10.0, 20.0]);
   val TensorF64 row = new TensorF64(arr[1, 3], arr[1.0, 2.0, 3.0]);
   val List<float> broadcast = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-  Assert.true_throws(broadcast_add_f64_into(col, row, arr[2, 3], broadcast).is_ok());
+  Assert.true_throws(Broadcast.broadcast_add_f64_into(rt borrow col, rt borrow row, rt borrow rectangular_shape, rt mut borrow broadcast).is_ok());
   Assert.equal_throws(broadcast[0], 11.0);
   Assert.equal_throws(broadcast[2], 13.0);
   Assert.equal_throws(broadcast[3], 21.0);
   Assert.equal_throws(broadcast[5], 23.0);
   val List<float> multiplied = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], multiplied).is_ok());
+  Assert.true_throws(Broadcast.broadcast_mul_f64_into(rt borrow col, rt borrow row, rt borrow rectangular_shape, rt mut borrow multiplied).is_ok());
   Assert.equal_throws(multiplied[0], 10.0);
   Assert.equal_throws(multiplied[2], 30.0);
   Assert.equal_throws(multiplied[3], 20.0);
   Assert.equal_throws(multiplied[5], 60.0);
-  Assert.true_throws(broadcast_mul_f64_into(col, row, arr[2, 3], row.values).is_err());
-
 
   val TensorF64 scalar = new TensorF64(arr[], arr[5.0]);
   val List<float> scalar_output = arr[0.0, 0.0, 0.0];
-  Assert.true_throws(broadcast_add_f64_into(scalar, row, arr[1, 3], scalar_output).is_ok());
+  Assert.true_throws(Broadcast.broadcast_add_f64_into(rt borrow scalar, rt borrow row, rt borrow row_shape, rt mut borrow scalar_output).is_ok());
   Assert.equal_throws(scalar_output[0], 6.0);
   Assert.equal_throws(scalar_output[2], 8.0);
 
   val List<float> rejected = arr[99.0, 99.0, 99.0];
-  Assert.true_throws(broadcast_add_f64_into(col, row, arr[3], rejected).is_err());
+  Assert.true_throws(Broadcast.broadcast_add_f64_into(rt borrow col, rt borrow row, rt borrow vector_shape, rt mut borrow rejected).is_err());
   Assert.equal_throws(rejected[0], 99.0);
-  Assert.true_throws(broadcast_add_f64_into(scalar, row, arr[1, 3], row.values).is_err());
 
   val TensorF64 zero = new TensorF64(arr[0, 3], arr[]);
   val List<float> empty_output = arr[];
@@ -82,19 +92,16 @@ pub routine main(): void {
   // dimension, after retaining all alias and descriptor rejection.
   val TensorF64 huge_empty_left = new TensorF64(arr[2000000000, 0], arr[]);
   val TensorF64 huge_empty_right = new TensorF64(arr[0, 0], arr[]);
-  Assert.true_throws(matmul_2d_f64_into(
-    huge_empty_left, huge_empty_right, empty_output
+  Assert.true_throws(TensorOps.matmul_2d_f64_into(
+    rt borrow huge_empty_left, rt borrow huge_empty_right, rt mut borrow empty_output
   ).is_ok());
-  Assert.true_throws(matmul_2d_f64_into(
-    huge_empty_left, huge_empty_right, huge_empty_left.values
-  ).is_err());
   val TensorF64 huge_inner_left = new TensorF64(arr[0, 2000000000], arr[]);
   val TensorF64 huge_inner_right = new TensorF64(arr[2000000000, 0], arr[]);
-  Assert.true_throws(matmul_2d_f64_into(
-    huge_inner_left, huge_inner_right, empty_output
+  Assert.true_throws(TensorOps.matmul_2d_f64_into(
+    rt borrow huge_inner_left, rt borrow huge_inner_right, rt mut borrow empty_output
   ).is_ok());
-  Assert.true_throws(validate_broadcast(zero, row, arr[0, 3], 0).is_ok());
-  Assert.true_throws(broadcast_add_f64_into(zero, row, arr[0, 3], empty_output).is_ok());
+  Assert.true_throws(Broadcast.validate_broadcast(rt borrow zero, rt borrow row, rt borrow empty_row_shape, 0).is_ok());
+  Assert.true_throws(Broadcast.broadcast_add_f64_into(rt borrow zero, rt borrow row, rt borrow empty_row_shape, rt mut borrow empty_output).is_ok());
 
   // Sum-to-shape must collapse the axes expanded during broadcasting.
   val TensorF64 upstream = new TensorF64(
@@ -102,22 +109,21 @@ pub routine main(): void {
   );
   val List<float> sum_scratch = arr[0.0, 0.0, 0.0];
   val List<float> sum_result = arr[0.0, 0.0, 0.0];
-  Assert.true_throws(sum_to_shape_f64_checked_into(
-    upstream, arr[1, 3], sum_scratch, sum_result
+  Assert.true_throws(TensorGradients.sum_to_shape_f64_checked_into(
+    rt borrow upstream, rt borrow row_shape, rt mut borrow sum_scratch, rt mut borrow sum_result
   ).is_ok());
   Assert.equal_throws(sum_result[0], 5.0);
   Assert.equal_throws(sum_result[1], 7.0);
   Assert.equal_throws(sum_result[2], 9.0);
-  Assert.true_throws(validate_sum_to_shape(upstream, arr[3, 1], 3).is_err());
+  Assert.true_throws(TensorGradients.validate_sum_to_shape(rt borrow upstream, rt borrow column_shape, 3).is_err());
   val List<float> scalar_scratch = arr[0.0];
   val List<float> scalar_gradient = arr[0.0];
-  Assert.true_throws(sum_to_shape_f64_checked_into(
-    upstream, arr[], scalar_scratch, scalar_gradient
+  Assert.true_throws(TensorGradients.sum_to_shape_f64_checked_into(
+    rt borrow upstream, rt borrow scalar_shape, rt mut borrow scalar_scratch, rt mut borrow scalar_gradient
   ).is_ok());
   Assert.equal_throws(scalar_gradient[0], 21.0);
-  Assert.true_throws(sum_to_shape_f64_checked_into(upstream, arr[], scalar_scratch, scalar_scratch).is_err());
+  Assert.true_throws(TensorGradients.sum_to_shape_f64_checked_into(rt borrow upstream, rt borrow scalar_shape, rt mut borrow scalar_scratch, rt mut borrow scalar_scratch).is_err());
   Assert.equal_throws(scalar_scratch[0], 21.0);
-  Assert.true_throws(broadcast_add_f64_into(col, row, arr[2, 3], row.values).is_err());
   stdio.println("ORES_ML_TENSOR_SMOKE_PASS");
   return;
 }

@@ -5,130 +5,118 @@
 // remain unchanged on every validation or finite arithmetic rejection.
 // TensorF64 currently wraps a mutable List<float>; this does NOT prove a
 // frozen device/storage capability or safety against concurrent FFI mutation.
-import class TensorF64 from './tensor';
-import fnc validate_tensor, checked_numel from './tensor';
+import class TensorF64 from "./tensor.ores";
+import module TensorOps from "./tensor.ores";
 
-fnc matmul_vjp_len_int(List<int> values): int {
-  let int count = 0;
-  for const value of values do
-    count = count + 1;
-  done
-  return count;
-}
-fnc matmul_vjp_len_float(List<float> values): int {
-  let int count = 0;
-  for const value of values do
-    count = count + 1;
-  done
-  return count;
-}
-fnc matmul_vjp_finite(float value): bool {
-  return (value - value) == 0.0;
-}
+define module MatmulBothVjp as
+  fnc matmul_vjp_finite(float value): bool {
+    return (value - value) == 0.0;
+  }
 
-// Outputs are independently prepared before EITHER is published. This is
-// useful for a single optimizer step's left/right gradient pair: a NaN or
-// overflow in dW cannot expose an already-updated dX to the caller.
-pub fnc matmul_both_vjp_f64_checked_into(
-  TensorF64 left,
-  TensorF64 right,
-  TensorF64 upstream,
-  List<float> mut scratch_left,
-  List<float> mut scratch_right,
-  List<float> mut output_left,
-  List<float> mut output_right
-): Result<bool, String> {
-  if scratch_left is scratch_right ||
-      scratch_left is output_left || scratch_left is output_right ||
-      scratch_right is output_left || scratch_right is output_right ||
-      output_left is output_right; do
-    return Err("matmul VJP outputs and scratch buffers must be disjoint");
-  fi
-  if scratch_left is left.values || scratch_left is right.values ||
-      scratch_left is upstream.values ||
-      scratch_right is left.values || scratch_right is right.values ||
-      scratch_right is upstream.values ||
-      output_left is left.values || output_left is right.values ||
-      output_left is upstream.values ||
-      output_right is left.values || output_right is right.values ||
-      output_right is upstream.values; do
-    return Err("matmul VJP mutable output aliases input tensor");
-  fi
-  if validate_tensor(left).is_err() || validate_tensor(right).is_err() ||
-      validate_tensor(upstream).is_err(); do
-    return Err("matmul VJP invalid input tensor");
-  fi
-  if matmul_vjp_len_int(left.shape) != 2 ||
-      matmul_vjp_len_int(right.shape) != 2 ||
-      matmul_vjp_len_int(upstream.shape) != 2; do
-    return Err("matmul VJP requires rank 2");
-  fi
-  val int rows = left.shape[0];
-  val int inner = left.shape[1];
-  val int cols = right.shape[1];
-  if right.shape[0] != inner ||
-      upstream.shape[0] != rows || upstream.shape[1] != cols; do
-    return Err("matmul VJP rank-2 dimension mismatch");
-  fi
-  if matmul_vjp_len_float(scratch_left) != matmul_vjp_len_float(output_left) ||
-      matmul_vjp_len_float(scratch_right) != matmul_vjp_len_float(output_right); do
-    return Err("matmul VJP scratch/output capacity mismatch");
-  fi
-  if checked_numel(left.shape, matmul_vjp_len_float(output_left)).is_err() ||
-      checked_numel(right.shape, matmul_vjp_len_float(output_right)).is_err(); do
-    return Err("matmul VJP destination shape mismatch");
-  fi
-  // Both adjoints are empty: do not iterate across huge empty outer axes.
-  // Keep descriptor, shape and alias rejection above this fast path.
-  if matmul_vjp_len_float(output_left) == 0 &&
-      matmul_vjp_len_float(output_right) == 0; do
-    return Ok(true);
-  fi
+  // Outputs are independently prepared before EITHER is published. This is
+  // useful for a single optimizer step's left/right gradient pair: a NaN or
+  // overflow in dW cannot expose an already-updated dX to the caller.
+  pub fnc matmul_both_vjp_f64_checked_into(
+    borrow TensorF64 left,
+    borrow TensorF64 right,
+    borrow TensorF64 upstream,
+    borrow mut List<float> scratch_left,
+    borrow mut List<float> scratch_right,
+    borrow mut List<float> output_left,
+    borrow mut List<float> output_right
+  ): Result<bool, String> {
+    if scratch_left is scratch_right ||
+        scratch_left is output_left || scratch_left is output_right ||
+        scratch_right is output_left || scratch_right is output_right ||
+        output_left is output_right; do
+      return Err("matmul VJP outputs and scratch buffers must be disjoint");
+    fi
+    if scratch_left is left.values || scratch_left is right.values ||
+        scratch_left is upstream.values ||
+        scratch_right is left.values || scratch_right is right.values ||
+        scratch_right is upstream.values ||
+        output_left is left.values || output_left is right.values ||
+        output_left is upstream.values ||
+        output_right is left.values || output_right is right.values ||
+        output_right is upstream.values; do
+      return Err("matmul VJP mutable output aliases input tensor");
+    fi
+    if TensorOps.validate_tensor(rt borrow left).is_err() || TensorOps.validate_tensor(rt borrow right).is_err() ||
+        TensorOps.validate_tensor(rt borrow upstream).is_err(); do
+      return Err("matmul VJP invalid input tensor");
+    fi
+    if left.shape.size != 2 ||
+        right.shape.size != 2 ||
+        upstream.shape.size != 2; do
+      return Err("matmul VJP requires rank 2");
+    fi
+    val int rows = left.shape[0];
+    val int inner = left.shape[1];
+    val int cols = right.shape[1];
+    if right.shape[0] != inner ||
+        upstream.shape[0] != rows || upstream.shape[1] != cols; do
+      return Err("matmul VJP rank-2 dimension mismatch");
+    fi
+    if scratch_left.size != output_left.size ||
+        scratch_right.size != output_right.size; do
+      return Err("matmul VJP scratch/output capacity mismatch");
+    fi
+    if TensorOps.checked_numel(rt borrow left.shape, output_left.size).is_err() ||
+        TensorOps.checked_numel(rt borrow right.shape, output_right.size).is_err(); do
+      return Err("matmul VJP destination shape mismatch");
+    fi
+    // Both adjoints are empty: do not iterate across huge empty outer axes.
+    // Keep descriptor, shape and alias rejection above this fast path.
+    if output_left.size == 0 &&
+        output_right.size == 0; do
+      return Ok(true);
+    fi
 
-  // Compute dX with row-major indexing, including empty dimensions.
-  for int row = 0; row < rows; row++ do
+    // Compute dX with row-major indexing, including empty dimensions.
+    for int row = 0; row < rows; row++ do
+      for int k = 0; k < inner; k++ do
+        let float value = 0.0;
+        for int col = 0; col < cols; col++ do
+          val float product =
+            upstream.values[(row * cols) + col] * right.values[(k * cols) + col];
+          if !matmul_vjp_finite(product); do
+            return Err("nonfinite matmul left gradient product");
+          fi
+          value = value + product;
+          if !matmul_vjp_finite(value); do
+            return Err("nonfinite matmul left gradient sum");
+          fi
+        done
+        scratch_left[(row * inner) + k] = value;
+      done
+    done
+
+    // Compute dW. Do not publish dX if this second independent pass fails.
     for int k = 0; k < inner; k++ do
-      let float value = 0.0;
       for int col = 0; col < cols; col++ do
-        val float product =
-          upstream.values[(row * cols) + col] * right.values[(k * cols) + col];
-        if !matmul_vjp_finite(product); do
-          return Err("nonfinite matmul left gradient product");
-        fi
-        value = value + product;
-        if !matmul_vjp_finite(value); do
-          return Err("nonfinite matmul left gradient sum");
-        fi
+        let float value = 0.0;
+        for int row = 0; row < rows; row++ do
+          val float product =
+            left.values[(row * inner) + k] * upstream.values[(row * cols) + col];
+          if !matmul_vjp_finite(product); do
+            return Err("nonfinite matmul right gradient product");
+          fi
+          value = value + product;
+          if !matmul_vjp_finite(value); do
+            return Err("nonfinite matmul right gradient sum");
+          fi
+        done
+        scratch_right[(k * cols) + col] = value;
       done
-      scratch_left[(row * inner) + k] = value;
     done
-  done
 
-  // Compute dW. Do not publish dX if this second independent pass fails.
-  for int k = 0; k < inner; k++ do
-    for int col = 0; col < cols; col++ do
-      let float value = 0.0;
-      for int row = 0; row < rows; row++ do
-        val float product =
-          left.values[(row * inner) + k] * upstream.values[(row * cols) + col];
-        if !matmul_vjp_finite(product); do
-          return Err("nonfinite matmul right gradient product");
-        fi
-        value = value + product;
-        if !matmul_vjp_finite(value); do
-          return Err("nonfinite matmul right gradient sum");
-        fi
-      done
-      scratch_right[(k * cols) + col] = value;
+    // The public outputs are published only after both gradient branches pass.
+    for int index = 0; index < output_left.size; index++ do
+      output_left[index] = scratch_left[index];
     done
-  done
-
-  // The public outputs are published only after both gradient branches pass.
-  for int index = 0; index < matmul_vjp_len_float(output_left); index++ do
-    output_left[index] = scratch_left[index];
-  done
-  for int index = 0; index < matmul_vjp_len_float(output_right); index++ do
-    output_right[index] = scratch_right[index];
-  done
-  return Ok(true);
-}
+    for int index = 0; index < output_right.size; index++ do
+      output_right[index] = scratch_right[index];
+    done
+    return Ok(true);
+  }
+end

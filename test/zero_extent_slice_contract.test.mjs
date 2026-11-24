@@ -13,12 +13,13 @@ test('zero-column row slice short-circuits only after all validations', () => {
   assert.ok(begin >= 0 && end > begin, 'expected public row-slice function');
   const markers = [
     'if output is source.values; do',
-    'if validate_tensor(source).is_err(); do',
-    'if count_ints(source.shape) != 2; do',
+    'if TensorOps.validate_tensor(rt borrow source).is_err(); do',
+    'if source.shape.size != 2; do',
     'if start < 0 || count < 0 || start > rows; do',
     'if count > rows - start; do',
-    'if checked_numel(arr[count, columns], count_floats(output)).is_err(); do',
-    'if count_floats(output) == 0; do',
+    'val List<int> result_shape = arr[count, columns];',
+    'if TensorOps.checked_numel(rt borrow result_shape, output.size).is_err(); do',
+    'if output.size == 0; do',
     'return Ok(true);',
     'for int i = 0; i < count; i++ do',
   ];
@@ -33,9 +34,8 @@ test('zero-column row slice short-circuits only after all validations', () => {
 test('native guest fixture includes enormous empty rows and rejection sentinels', () => {
   assert.match(guest, /huge_zero_columns/);
   assert.match(guest, /arr\[2000000000, 0\]/);
-  assert.match(guest, /huge_zero_columns, 0, 2000000000, empty/);
-  assert.match(guest, /huge_zero_columns, 1, 2000000000, empty/);
-  assert.match(guest, /huge_zero_columns, 0, 2000000000, huge_zero_columns\.values/);
+  assert.match(guest, /huge_zero_columns, 0, 2000000000, rt mut borrow empty/);
+  assert.match(guest, /huge_zero_columns, 1, 2000000000, rt mut borrow empty/);
   assert.match(guest, /wrong_zero_slice_storage\[0\], 37\.0/);
 });
 
@@ -62,12 +62,13 @@ test('zero-output gather follows descriptor and every-index admission', () => {
   const body = source.slice(start, end);
   const markers = [
     'if output is source.values; do',
-    'if validate_tensor(source).is_err(); do',
-    'if count_ints(source.shape) != 2; do',
-    'if checked_numel(arr[selected, columns], count_floats(output)).is_err(); do',
-    'for const index of indices do',
+    'if TensorOps.validate_tensor(rt borrow source).is_err(); do',
+    'if source.shape.size != 2; do',
+    'val List<int> result_shape = arr[selected, columns];',
+    'if TensorOps.checked_numel(rt borrow result_shape, output.size).is_err(); do',
+    'for int index_offset = 0; index_offset < indices.size; index_offset++ do',
     'if index < 0 || index >= rows; do',
-    'if count_floats(output) == 0; do',
+    'if output.size == 0; do',
     'return Ok(true);',
     'for int i = 0; i < selected; i++ do',
   ];
@@ -85,13 +86,13 @@ test('zero-output scatter VJP follows all descriptor, alias and index checks', (
   const body = source.slice(start);
   const markers = [
     'if scratch is output || scratch is upstream.values || output is upstream.values; do',
-    'if validate_tensor(upstream).is_err(); do',
-    'if count_ints(upstream.shape) != 2 || count_ints(source_shape) != 2; do',
+    'if TensorOps.validate_tensor(rt borrow upstream).is_err(); do',
+    'if upstream.shape.size != 2 || source_shape.size != 2; do',
     'if rows < 0 || columns < 0; do',
     'if upstream.shape[0] != selected || upstream.shape[1] != columns; do',
-    'if count_floats(scratch) != n; do',
-    'if checked_numel(source_shape, n).is_err(); do',
-    'for const index of indices do',
+    'if scratch.size != n; do',
+    'if TensorOps.checked_numel(rt borrow source_shape, n).is_err(); do',
+    'for int index_offset = 0; index_offset < indices.size; index_offset++ do',
     'if index < 0 || index >= rows; do',
     'if n == 0; do',
     'return Ok(true);',
@@ -107,15 +108,14 @@ test('zero-output scatter VJP follows all descriptor, alias and index checks', (
 
 test('native zero-column gather and VJP fixtures keep negative-path assertions', () => {
   const markers = [
-    'huge_zero_columns, arr[0, 1999999999, 0], empty',
-    'huge_zero_columns, arr[2000000000], empty',
-    'huge_zero_columns, arr[-1], empty',
-    'huge_zero_columns, arr[0], huge_zero_columns.values',
-    'huge_zero_columns, arr[0], wrong_zero_slice_storage',
+    'huge_zero_columns, rt borrow wide_repeated_indices, rt mut borrow empty',
+    'huge_zero_columns, rt borrow past_wide_end, rt mut borrow empty',
+    'huge_zero_columns, rt borrow negative_index, rt mut borrow empty',
+    'huge_zero_columns, rt borrow first_index, rt mut borrow wrong_zero_slice_storage',
     'wrong_zero_slice_storage[0], 37.0',
-    'dy_zero_columns, arr[0, 1999999999, 0], arr[2000000000, 0]',
-    'dy_zero_columns, arr[2000000000, 0, 0], arr[2000000000, 0]',
-    'zero_grad_scratch, zero_grad_scratch',
+    'dy_zero_columns, rt borrow wide_repeated_indices, rt borrow wide_zero_column_shape',
+    'dy_zero_columns, rt borrow invalid_wide_indices, rt borrow wide_zero_column_shape',
+    'zero_grad_scratch, rt mut borrow zero_grad_scratch',
   ];
   for (const marker of markers) {
     assert.ok(guest.includes(marker), `missing native acceptance assertion: ${marker}`);

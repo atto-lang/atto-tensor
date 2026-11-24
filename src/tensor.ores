@@ -1,246 +1,242 @@
 // Pure-Oreslang CPU reference: f64 *logical* tensor with contiguous row-major data.
 // Current List<float> storage is NOT a proven immutable/unique buffer. Borrow and
 // device-lease enforcement are compiler/runtime dependencies, not library claims.
+import module num from "core/num";
+
 define pub class TensorF64 as
   pub val List<int> shape;
   pub val List<float> values;
 end
 
-// Finite-only P0 semantics; never silently turn NaN into zero in ReLU.
-fnc finite_f64(float value): bool {
-  return (value - value) == 0.0;
-}
+define module TensorOps as
+  // Finite-only P0 semantics; never silently turn NaN into zero in ReLU.
+  fnc finite_f64(float value): bool {
+    return (value - value) == 0.0;
+  }
 
-fnc count_ints(List<int> values): int {
-  let int count = 0;
-  for const value of values do
-    count = count + 1;
-  done
-  return count;
-}
+  // Compute a bounded shape product in O(rank), with checked integer arithmetic.
+  // No unchecked overflow or dimension-sized validation loops.
+  pub fnc checked_numel(borrow List<int> shape, int storage_length): Result<int, String> {
+    if storage_length < 0; do
+      return Err("negative storage length");
+    fi
+    let bool zero_dimension = false;
+    // Match the 32-axis descriptor-reference ABI even when storage is empty.
+    // Reject after 33 visited dimensions without needing shape-sized allocation.
+    let int rank = 0;
+    for int dimension_offset = 0; dimension_offset < shape.size; dimension_offset++ do
+      val int dimension = shape[dimension_offset];
+      rank = rank + 1;
+      if rank > 32; do
+        return Err("tensor rank exceeds 32");
+      fi
+      if dimension < 0; do
+        return Err("negative tensor dimension");
+      fi
+      if dimension == 0; do
+        zero_dimension = true;
+      fi
+    done
+    if zero_dimension; do
+      if storage_length != 0; do
+        return Err("zero-extent tensor must have empty storage");
+      fi
+      return Ok(0);
+    fi
 
-fnc count_floats(List<float> values): int {
-  let int count = 0;
-  for const value of values do
-    count = count + 1;
-  done
-  return count;
-}
+    let int product = 1;
+    for int dimension_offset = 0; dimension_offset < shape.size; dimension_offset++ do
+      val int dimension = shape[dimension_offset];
+      val Option<int> next = num.checked_mul(product, dimension);
+      if next.is_none(); do
+        return Err("tensor shape exceeds backing storage");
+      fi
+      product = next.unwrap();
+      if product > storage_length; do
+        return Err("tensor shape exceeds backing storage");
+      fi
+    done
+    if product != storage_length; do
+      return Err("tensor shape and storage length mismatch");
+    fi
+    return Ok(product);
+  }
 
-// Compute a bounded shape product in O(rank), with division before multiply.
-// No unchecked overflow or dimension-sized validation loops.
-pub fnc checked_numel(List<int> shape, int storage_length): Result<int, String> {
-  if storage_length < 0; do
-    return Err("negative storage length");
-  fi
-  let bool zero_dimension = false;
-  // Match the 32-axis descriptor-reference ABI even when storage is empty.
-  // Reject after 33 visited dimensions without needing shape-sized allocation.
-  let int rank = 0;
-  for const dimension of shape do
-    rank = rank + 1;
-    if rank > 32; do
-      return Err("tensor rank exceeds 32");
+  pub fnc validate_tensor(borrow TensorF64 tensor): Result<bool, String> {
+    val Result<int, String> size = checked_numel(
+      rt borrow tensor.shape,
+      tensor.values.size
+    );
+    if size.is_err(); do
+      return Err("invalid contiguous tensor descriptor");
     fi
-    if dimension < 0; do
-      return Err("negative tensor dimension");
-    fi
-    if dimension == 0; do
-      zero_dimension = true;
-    fi
-  done
-  if zero_dimension; do
-    if storage_length != 0; do
-      return Err("zero-extent tensor must have empty storage");
-    fi
-    return Ok(0);
-  fi
+    for int value_offset = 0; value_offset < tensor.values.size; value_offset++ do
+      val float value = tensor.values[value_offset];
+      if !finite_f64(value); do
+        return Err("tensor contains nonfinite values");
+      fi
+    done
+    return Ok(true);
+  }
 
-  let int product = 1;
-  for const dimension of shape do
-    // Division bounds the product before multiplication; product is always
-    // nonnegative and <= storage_length. This is O(rank), not O(numel).
-    if product > storage_length / dimension; do
-      return Err("tensor shape exceeds backing storage");
-    fi
-    product = product * dimension;
-  done
-  if product != storage_length; do
-    return Err("tensor shape and storage length mismatch");
-  fi
-  return Ok(product);
-}
-
-pub fnc validate_tensor(TensorF64 tensor): Result<bool, String> {
-  val Result<int, String> size = checked_numel(
-    tensor.shape,
-    count_floats(tensor.values)
-  );
-  if size.is_err(); do
-    return Err("invalid contiguous tensor descriptor");
-  fi
-  for const value of tensor.values do
-    if !finite_f64(value); do
-      return Err("tensor contains nonfinite values");
-    fi
-  done
-  return Ok(true);
-}
-
-fnc equal_shapes(List<int> first, List<int> second): bool {
-  if count_ints(first) != count_ints(second); do
-    return false;
-  fi
-  let int i = 0;
-  for const dimension of first do
-    if dimension != second[i]; do
+  fnc equal_shapes(borrow List<int> first, borrow List<int> second): bool {
+    if first.size != second.size; do
       return false;
     fi
-    i = i + 1;
-  done
-  return true;
-}
+    let int i = 0;
+    for int dimension_offset = 0; dimension_offset < first.size; dimension_offset++ do
+      val int dimension = first[dimension_offset];
+      if dimension != second[i]; do
+        return false;
+      fi
+      i = i + 1;
+    done
+    return true;
+  }
 
-// Writes begin only after validating both tensors, shapes and output size.
-// The caller must provide an output buffer disjoint from input storage; this
-// requirement is not yet mechanically enforced for List<T> by every compiler.
-pub fnc add_f64_into(
-  TensorF64 left,
-  TensorF64 right,
-  List<float> mut output
-): Result<bool, String> {
-  if output is left.values || output is right.values; do
-    return Err("aliased tensor output");
-  fi
-  if validate_tensor(left).is_err(); do
-    return Err("invalid left tensor");
-  fi
-  if validate_tensor(right).is_err(); do
-    return Err("invalid right tensor");
-  fi
-  if !equal_shapes(left.shape, right.shape); do
-    return Err("add requires identical tensor shapes");
-  fi
-  val int length = count_floats(left.values);
-  if count_floats(output) != length; do
-    return Err("add output length mismatch");
-  fi
-  // Preflight every arithmetic result so overflow does not cause a
-  // partially-written output. Reference kernel deliberately does two passes.
-  for int i = 0; i < length; i++ do
-    if !finite_f64(left.values[i] + right.values[i]); do
-      return Err("nonfinite add result");
+  // Writes begin only after validating both tensors, shapes and output size.
+  // The caller must provide an output buffer disjoint from input storage; this
+  // requirement is not yet mechanically enforced for List<T> by every compiler.
+  pub fnc add_f64_into(
+    borrow TensorF64 left,
+    borrow TensorF64 right,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if output is left.values || output is right.values; do
+      return Err("aliased tensor output");
     fi
-  done
-  for int i = 0; i < length; i++ do
-    output[i] = left.values[i] + right.values[i];
-  done
-  return Ok(true);
-}
-
-pub fnc relu_f64_into(
-  TensorF64 source,
-  List<float> mut output
-): Result<bool, String> {
-  if output is source.values; do
-    return Err("relu output aliases input storage");
-  fi
-  if validate_tensor(source).is_err(); do
-    return Err("invalid relu input");
-  fi
-  val int length = count_floats(source.values);
-  if count_floats(output) != length; do
-    return Err("relu output length mismatch");
-  fi
-  for int i = 0; i < length; i++ do
-    val float value = source.values[i];
-    if value > 0.0; do
-      output[i] = value;
-    else
-      output[i] = 0.0;
+    if validate_tensor(rt borrow left).is_err(); do
+      return Err("invalid left tensor");
     fi
-  done
-  return Ok(true);
-}
-
-pub fnc sum_f64(TensorF64 source): Result<float, String> {
-  if validate_tensor(source).is_err(); do
-    return Err("invalid sum input");
-  fi
-  let float result = 0.0;
-  for const value of source.values do
-    result = result + value;
-    if !finite_f64(result); do
-      return Err("nonfinite sum result");
+    if validate_tensor(rt borrow right).is_err(); do
+      return Err("invalid right tensor");
     fi
-  done
-  return Ok(result);
-}
-
-// Reference matrix multiplication: [M,K] @ [K,N] -> [M,N].
-// No broadcasting, transposed strides, device execution or implicit allocation.
-pub fnc matmul_2d_f64_into(
-  TensorF64 left,
-  TensorF64 right,
-  List<float> mut output
-): Result<bool, String> {
-  if output is left.values || output is right.values; do
-    return Err("matmul requires distinct output storage");
-  fi
-  if validate_tensor(left).is_err(); do
-    return Err("invalid left matrix");
-  fi
-  if validate_tensor(right).is_err(); do
-    return Err("invalid right matrix");
-  fi
-  if count_ints(left.shape) != 2; do
-    return Err("left matrix must have rank 2");
-  fi
-  if count_ints(right.shape) != 2; do
-    return Err("right matrix must have rank 2");
-  fi
-  val int rows = left.shape[0];
-  val int inner = left.shape[1];
-  val int right_inner = right.shape[0];
-  val int cols = right.shape[1];
-  if inner != right_inner; do
-    return Err("matmul inner dimensions mismatch");
-  fi
-  val Result<int, String> size = checked_numel(arr[rows, cols], count_floats(output));
-  if size.is_err(); do
-    return Err("matmul output shape mismatch");
-  fi
-  // A valid empty result needs no scalar iterations. Without this guard,
-  // a shape such as [2000000000,0] causes billions of empty outer loops.
-  // Keep this AFTER alias, input and output descriptor validation.
-  if count_floats(output) == 0; do
+    if !equal_shapes(rt borrow left.shape, rt borrow right.shape); do
+      return Err("add requires identical tensor shapes");
+    fi
+    val int length = left.values.size;
+    if output.size != length; do
+      return Err("add output length mismatch");
+    fi
+    // Preflight every arithmetic result so overflow does not cause a
+    // partially-written output. Reference kernel deliberately does two passes.
+    for int i = 0; i < length; i++ do
+      if !finite_f64(left.values[i] + right.values[i]); do
+        return Err("nonfinite add result");
+      fi
+    done
+    for int i = 0; i < length; i++ do
+      output[i] = left.values[i] + right.values[i];
+    done
     return Ok(true);
-  fi
-  // Validate every candidate before the first mutation. The reference
-  // implementation recomputes instead of allocating temporary storage.
-  for int row = 0; row < rows; row++ do
-    for int column = 0; column < cols; column++ do
-      let float candidate = 0.0;
-      for int k = 0; k < inner; k++ do
-        candidate = candidate + (
-          left.values[(row * inner) + k] * right.values[(k * cols) + column]
-        );
-        if !finite_f64(candidate); do
-          return Err("nonfinite matmul result");
-        fi
+  }
+
+  pub fnc relu_f64_into(
+    borrow TensorF64 source,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if output is source.values; do
+      return Err("relu output aliases input storage");
+    fi
+    if validate_tensor(rt borrow source).is_err(); do
+      return Err("invalid relu input");
+    fi
+    val int length = source.values.size;
+    if output.size != length; do
+      return Err("relu output length mismatch");
+    fi
+    for int i = 0; i < length; i++ do
+      val float value = source.values[i];
+      if value > 0.0; do
+        output[i] = value;
+      else
+        output[i] = 0.0;
+      fi
+    done
+    return Ok(true);
+  }
+
+  pub fnc sum_f64(borrow TensorF64 source): Result<float, String> {
+    if validate_tensor(rt borrow source).is_err(); do
+      return Err("invalid sum input");
+    fi
+    let float result = 0.0;
+    for int value_offset = 0; value_offset < source.values.size; value_offset++ do
+      val float value = source.values[value_offset];
+      result = result + value;
+      if !finite_f64(result); do
+        return Err("nonfinite sum result");
+      fi
+    done
+    return Ok(result);
+  }
+
+  // Reference matrix multiplication: [M,K] @ [K,N] -> [M,N].
+  // No broadcasting, transposed strides, device execution or implicit allocation.
+  pub fnc matmul_2d_f64_into(
+    borrow TensorF64 left,
+    borrow TensorF64 right,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if output is left.values || output is right.values; do
+      return Err("matmul requires distinct output storage");
+    fi
+    if validate_tensor(rt borrow left).is_err(); do
+      return Err("invalid left matrix");
+    fi
+    if validate_tensor(rt borrow right).is_err(); do
+      return Err("invalid right matrix");
+    fi
+    if left.shape.size != 2; do
+      return Err("left matrix must have rank 2");
+    fi
+    if right.shape.size != 2; do
+      return Err("right matrix must have rank 2");
+    fi
+    val int rows = left.shape[0];
+    val int inner = left.shape[1];
+    val int right_inner = right.shape[0];
+    val int cols = right.shape[1];
+    if inner != right_inner; do
+      return Err("matmul inner dimensions mismatch");
+    fi
+    val List<int> result_shape = arr[rows, cols];
+    val Result<int, String> size = checked_numel(rt borrow result_shape, output.size);
+    if size.is_err(); do
+      return Err("matmul output shape mismatch");
+    fi
+    // A valid empty result needs no scalar iterations. Without this guard,
+    // a shape such as [2000000000,0] causes billions of empty outer loops.
+    // Keep this AFTER alias, input and output descriptor validation.
+    if output.size == 0; do
+      return Ok(true);
+    fi
+    // Validate every candidate before the first mutation. The reference
+    // implementation recomputes instead of allocating temporary storage.
+    for int row = 0; row < rows; row++ do
+      for int column = 0; column < cols; column++ do
+        let float candidate = 0.0;
+        for int k = 0; k < inner; k++ do
+          candidate = candidate + (
+            left.values[(row * inner) + k] * right.values[(k * cols) + column]
+          );
+          if !finite_f64(candidate); do
+            return Err("nonfinite matmul result");
+          fi
+        done
       done
     done
-  done
-  for int row = 0; row < rows; row++ do
-    for int column = 0; column < cols; column++ do
-      let float accumulator = 0.0;
-      for int k = 0; k < inner; k++ do
-        accumulator = accumulator + (
-          left.values[(row * inner) + k] * right.values[(k * cols) + column]
-        );
+    for int row = 0; row < rows; row++ do
+      for int column = 0; column < cols; column++ do
+        let float accumulator = 0.0;
+        for int k = 0; k < inner; k++ do
+          accumulator = accumulator + (
+            left.values[(row * inner) + k] * right.values[(k * cols) + column]
+          );
+        done
+        output[(row * cols) + column] = accumulator;
       done
-      output[(row * cols) + column] = accumulator;
     done
-  done
-  return Ok(true);
-}
+    return Ok(true);
+  }
+end

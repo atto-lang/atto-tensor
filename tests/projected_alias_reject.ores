@@ -1,0 +1,7 @@
+import class TensorF64 from "../src/tensor.ores";
+import module TensorOps from "../src/tensor.ores";
+
+pub routine main(): void {
+  val TensorF64 input = new TensorF64(arr[2], arr[1.0, -1.0]);
+  TensorOps.relu_f64_into(rt borrow input, rt mut borrow input.values);
+}

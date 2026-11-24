@@ -18,6 +18,15 @@ Tensor shapes, data layouts, numerical operations, and ownership-aware memory co
 - Document input types, error behavior, shape and memory ownership requirements as applicable.
 - Distinguish CPU execution, SIMD, GPU offload, and other target-specific capabilities.
 
+## CPU tensor kernels
+
+Import the `TensorF64` class and `TensorOps` module from `src/tensor.ores` for
+shape validation, elementwise add, ReLU, sum, and matrix multiplication.
+`Broadcast`, `TensorGradients`, `RowBatches`, `MatmulVjp`, and `MatmulBothVjp`
+expose broadcasting, gradient reduction, row gather and slice, and matrix
+gradients. Pass inputs with `rt borrow` and caller-owned scratch and output
+storage with `rt mut borrow`. Tensors use finite f64 values in row-major order.
+
 ## Packed AoS and SoA
 
 `src/layout.atto` exposes explicit conversions for packed homogeneous f64
