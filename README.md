@@ -49,3 +49,9 @@ AttoLang is the canonical project name; new source, examples and documentation u
 `reference/shape_rules.py` defines bounded shape validation, scalar/zero-axis element counts, row-major strides, trailing-axis broadcast compatibility and broadcast index mapping. It rejects booleans as dimensions, negative dimensions, rank over 64 and signed-64-bit element-count overflow. This establishes deterministic expected behavior for future Atto tensor backends; no CPU/GPU/SIMD Atto guest execution is claimed.
 
 Run `python3 -m unittest discover -s tests -v` from the repository root to check the Python reference examples. Before porting, align error representation and resource bounds across compilers.
+
+## Organization boundaries and legacy compatibility
+
+Tensor owns checked layouts and kernels, not production model serving or inference billing. Preserve the existing host-reference checks while migrating tooling to Rust; do not introduce a host-language numerical implementation as the public Atto tensor API. New portable language libraries, compilers, tooling and conformance belong in AttoLang; managed cloud hosting, deployment, tenant identity and billing belong in separately governed services. Preserve supported legacy .ores source and historical package/CLI aliases until compiler-backed .atto replacements and consumers are validated. Similar repository names do not establish an identity-preserving transfer or source parity.
+
+Any future repository transfer requires an approved owner and rollback plan, independently authorized source and destination, recorded numeric repository IDs and commit/tree, verified visibility, rulesets, access, releases, packages, consumers, webhooks, Apps, secrets and runner continuity. Never transfer private source without separate explicit authorization. Verify identity, history and controls after a transfer and rerun exact-head CI with executed steps; zero-step and host-only tests do not certify native guest execution.
