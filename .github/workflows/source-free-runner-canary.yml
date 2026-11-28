@@ -1,0 +1,18 @@
+# Diagnostic only: no checkout, no private source, no credentials, no artifacts.
+name: Source-free runner admission canary
+on:
+  push:
+    branches:
+      - integration/native-tensor-reconcile-20261031
+  workflow_dispatch:
+permissions: {}
+jobs:
+  runner-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Confirm hosted runner executed an actual shell step
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo SOURCE_FREE_RUNNER_ADMITTED

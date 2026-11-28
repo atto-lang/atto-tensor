@@ -18,6 +18,44 @@ Tensor shapes, data layouts, numerical operations, and ownership-aware memory co
 - Document input types, error behavior, shape and memory ownership requirements as applicable.
 - Distinguish CPU execution, SIMD, GPU offload, and other target-specific capabilities.
 
+## CPU tensor kernels
+
+Import the `TensorF64` class and `TensorOps` module from `src/tensor.ores` for
+shape validation, elementwise add, ReLU, sum, and matrix multiplication.
+`Broadcast`, `TensorGradients`, `RowBatches`, `MatmulVjp`, and `MatmulBothVjp`
+expose broadcasting, gradient reduction, row gather and slice, and matrix
+gradients. Pass inputs with `rt borrow` and caller-owned scratch and output
+storage with `rt mut borrow`. Tensors use finite f64 values in row-major order.
+
+`Softmax.softmax_last_axis_f64_into` normalizes the last axis of any
+positive-rank tensor, with a maximum shift before exponentiation. Its checked
+VJP uses the same input shape and recomputes the probabilities from the logits.
+[Softmax numerical analysis](https://arxiv.org/abs/1909.03469)
+
+`Attention.scaled_dot_product_f64_into` accepts queries shaped
+`[..., queries, depth]`, keys shaped `[..., keys, depth]`, and values shaped
+`[..., keys, channels]`. The leading batch and head dimensions must match.
+It writes `[..., queries, channels]` and accepts a causal flag that limits
+each query to keys at or before its position within that batch. Score scratch
+has shape `[..., queries, keys]`. The checked VJP publishes the three input
+gradients together and needs scratch for scores, score gradients, and the
+concatenated query, key, and value gradients. The forward and reverse kernels
+use caller-owned, disjoint row-major buffers.
+[Scaled dot-product attention](https://arxiv.org/abs/1706.03762)
+
+## Packed AoS and SoA
+
+`src/layout.atto` exposes explicit conversions for packed homogeneous f64
+records with logical shape `[rows, fields]`. AoS stores each row together.
+SoA stores each field together. Callers provide disjoint storage through
+read and exclusive mutable borrows. The conversion checks both extents and
+storage lengths before writing, and the inverse permutation is its VJP.
+
+The layout guest fixture checks the physical order, round trip, adjoint
+identity, and unchanged storage after rejected conversions. Device
+placement uses Atto's `gpu { ... }` execution surface with its own compiler
+and device admission requirements.
+
 ## Verification
 
 Use checked-in tests, documented tolerances, and exact-commit runtime evidence. Host-only or compilation tests are not equivalent to executed AttoLang guest tests. Record backend gaps explicitly.

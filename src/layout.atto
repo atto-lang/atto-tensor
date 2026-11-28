@@ -1,0 +1,63 @@
+// Packed homogeneous records have logical shape [rows, fields].
+// AoS has rows contiguous. SoA has fields contiguous.
+define module TensorLayout as
+  fnc transpose_f64(
+    borrow List<float> source,
+    rows: int,
+    fields: int,
+    borrow mut List<float> destination
+  ): Result<bool, String> {
+    if rows < 0 || fields < 0 do
+      return Err("negative packed layout extent");
+    fi
+    if source is destination do
+      return Err("layout conversion requires disjoint storage");
+    fi
+    val int count = source.size;
+    if count != destination.size do
+      return Err("layout conversion storage length mismatch");
+    fi
+    if rows == 0 || fields == 0 do
+      if count == 0 do
+        return Ok(true);
+      fi
+      return Err("zero-extent layout requires empty storage");
+    fi
+
+    // Bound positive extents before multiplying. With both at most i32::MAX
+    // the product and all indexing fit signed i64, even after a bad request.
+    if count > 2147483647 || rows > count || fields > count do
+      return Err("packed layout extent exceeds storage");
+    fi
+    if rows * fields != count do
+      return Err("packed layout shape does not match storage");
+    fi
+
+    for int row = 0; row < rows; row++ do
+      for int field = 0; field < fields; field++ do
+        destination[field * rows + row] = source[row * fields + field];
+      done
+    done
+    return Ok(true);
+  }
+
+  pub fnc aos_to_soa_f64_into(
+    borrow List<float> source,
+    rows: int,
+    fields: int,
+    borrow mut List<float> destination
+  ): Result<bool, String> {
+    return transpose_f64(rt borrow source, rows, fields, rt mut borrow destination);
+  }
+
+  // This is also the VJP for aos_to_soa_f64_into. The inverse of
+  // a permutation is its adjoint for the ordinary tensor dot product.
+  pub fnc soa_to_aos_f64_into(
+    borrow List<float> source,
+    rows: int,
+    fields: int,
+    borrow mut List<float> destination
+  ): Result<bool, String> {
+    return transpose_f64(rt borrow source, fields, rows, rt mut borrow destination);
+  }
+end

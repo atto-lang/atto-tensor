@@ -1,0 +1,229 @@
+// CPU softmax for contiguous row-major f64 tensors.
+import module num from "core/num";
+import class TensorF64 from "./tensor.ores";
+import module TensorOps from "./tensor.ores";
+
+define module Softmax as
+  fnc inverse_power_of_two(int exponent): float {
+    let int bits = exponent;
+    let float weight = 0.5;
+    let float result = 1.0;
+    while bits > 0 do
+      if Integer.rem(bits, 2) != 0 then
+        result = result * weight;
+      fi
+      bits = bits >>> 1;
+      weight = weight * weight;
+    done
+    return result;
+  }
+
+  // Softmax only needs exp(x) for x <= 0. Extreme finite logits can produce
+  // a difference of -Infinity, which has the same zero weight as underflow.
+  fnc exp_nonpositive(float x): float {
+    if x == 0.0 then
+      return 1.0;
+    fi
+    if x <= -746.0 then
+      return 0.0;
+    fi
+
+    // Reduce x to r = x + n*log(2), with |r| <= log(2)/2.
+    // The search obtains the nearest integer n without a float-to-int cast.
+    val float nearest = (-x * 1.4426950408889634) + 0.5;
+    let int n = 0;
+    let int step = 1024;
+    while step != 0 do
+      val int candidate = n + step;
+      if Integer.toFloatExact(candidate) <= nearest then
+        n = candidate;
+      fi
+      step = step >>> 1;
+    done
+    val float float_n = Integer.toFloatExact(n);
+    // The high part has enough trailing zero bits for n * high to be exact.
+    val float r = (x + float_n * 0.6931471803691238) + float_n * 1.9082149292705877e-10;
+    let float exp_r = 1.0;
+    for int k = 18; k > 0; k-- do
+      exp_r = 1.0 + (r * exp_r / Integer.toFloatExact(k));
+    done
+    if n > 1022 then
+      // Use a normal scale factor, with a single rounding into the subnormal range.
+      return (exp_r * inverse_power_of_two(n - 1022)) * 2.2250738585072014e-308;
+    fi
+    return exp_r * inverse_power_of_two(n);
+  }
+
+  // The caller has checked the finite input, row sizes, and exclusive loan.
+  // causal_query_count=0 includes the whole row. A positive value resets the
+  // allowed key prefix at the start of each query sequence.
+  fnc normalize_rows(
+    borrow mut List<float> values,
+    int columns,
+    int causal_query_count
+  ): void {
+    let int query_index = 0;
+    for int start = 0; start < values.size; start = start + columns do
+      let int used = columns;
+      if causal_query_count > 0 && query_index < columns then
+        used = query_index + 1;
+      fi
+      val int limit = start + used;
+      let float maximum = values[start];
+      for int i = start + 1; i < limit; i++ do
+        if values[i] > maximum then
+          maximum = values[i];
+        fi
+      done
+
+      let float total = 0.0;
+      let float compensation = 0.0;
+      for int i = start; i < limit; i++ do
+        val float weight = exp_nonpositive(values[i] - maximum);
+        values[i] = weight;
+        val float term = weight - compensation;
+        val float next = total + term;
+        compensation = (next - total) - term;
+        total = next;
+      done
+      for int i = start; i < limit; i++ do
+        values[i] = values[i] / total;
+      done
+      for int i = limit; i < start + columns; i++ do
+        values[i] = 0.0;
+      done
+      if causal_query_count > 0 then
+        query_index = query_index + 1;
+        if query_index == causal_query_count then
+          query_index = 0;
+        fi
+      fi
+    done
+  }
+
+  pub fnc softmax_last_axis_f64_into(
+    borrow TensorF64 logits,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if output is logits.values then
+      return Err("softmax output aliases logits");
+    fi
+    if TensorOps.validate_tensor(rt borrow logits).is_err() || logits.shape.size == 0 then
+      return Err("softmax requires a finite tensor of rank at least one");
+    fi
+    if output.size != logits.values.size then
+      return Err("softmax output length mismatch");
+    fi
+    for int i = 0; i < output.size; i++ do
+      output[i] = logits.values[i];
+    done
+    normalize_rows(rt mut borrow output, logits.shape[logits.shape.size - 1], 0);
+    return Ok(true);
+  }
+
+  // Normalize [query, key] scores in place. Positive causal_query_count
+  // applies the key <= query rule within each batch. Zero includes every key.
+  pub fnc normalize_attention_scores_f64(
+    borrow mut List<float> scores,
+    int keys,
+    int causal_query_count
+  ): Result<bool, String> {
+    if keys <= 0 || causal_query_count < 0 || Integer.rem(scores.size, keys) != 0 then
+      return Err("invalid attention score geometry");
+    fi
+    if causal_query_count > 0 then
+      val Option<int> batch_length = num.checked_mul(causal_query_count, keys);
+      if batch_length.is_none() || Integer.rem(scores.size, batch_length.unwrap()) != 0 then
+        return Err("invalid causal attention batch length");
+      fi
+    fi
+    for int i = 0; i < scores.size; i++ do
+      val float score = scores[i];
+      if (score - score) != 0.0 then
+        return Err("nonfinite attention score");
+      fi
+    done
+    normalize_rows(rt mut borrow scores, keys, causal_query_count);
+    return Ok(true);
+  }
+
+  pub fnc softmax_last_axis_vjp_f64_checked_into(
+    borrow TensorF64 logits,
+    borrow TensorF64 upstream,
+    borrow mut List<float> scratch,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if scratch is output || scratch is logits.values || output is logits.values ||
+        scratch is upstream.values || output is upstream.values then
+      return Err("softmax VJP requires disjoint scratch and output");
+    fi
+    if TensorOps.validate_tensor(rt borrow upstream).is_err() ||
+        logits.shape.size == 0 || logits.shape.size != upstream.shape.size then
+      return Err("invalid softmax VJP input");
+    fi
+    for int axis = 0; axis < logits.shape.size; axis++ do
+      if logits.shape[axis] != upstream.shape[axis] then
+        return Err("softmax VJP shape mismatch");
+      fi
+    done
+    if scratch.size != output.size || output.size != upstream.values.size then
+      return Err("softmax VJP buffer length mismatch");
+    fi
+    if softmax_last_axis_f64_into(rt borrow logits, rt mut borrow scratch).is_err() then
+      return Err("invalid softmax VJP logits");
+    fi
+
+    // dx = p * (dy - dot(p, dy)). Scaling dy before both operations keeps
+    // large finite adjoints from overflowing the row dot or subtraction.
+    val int columns = logits.shape[logits.shape.size - 1];
+    for int start = 0; start < scratch.size; start = start + columns do
+      val int limit = start + columns;
+      let float scale = 0.0;
+      let float anchor = 0.0;
+      for int i = start; i < limit; i++ do
+        if scratch[i] != 0.0 then
+          val float value = upstream.values[i];
+          if value > scale then
+            scale = value;
+            anchor = value;
+          elif -value > scale then
+            scale = -value;
+            anchor = value;
+          fi
+        fi
+      done
+      if scale == 0.0 then
+        for int i = start; i < limit; i++ do
+          scratch[i] = 0.0;
+        done
+      else
+        // Center on a supported value so a constant upstream has an exact
+        // zero adjoint even when the probabilities round away from unit sum.
+        val float center = anchor / scale;
+        let float dot = 0.0;
+        let float compensation = 0.0;
+        for int i = start; i < limit; i++ do
+          if scratch[i] != 0.0 then
+            val float term = scratch[i] * ((upstream.values[i] / scale) - center) - compensation;
+            val float next = dot + term;
+            compensation = (next - dot) - term;
+            dot = next;
+          fi
+        done
+        for int i = start; i < limit; i++ do
+          if scratch[i] != 0.0 then
+            val float gradient = (scratch[i] * ((upstream.values[i] / scale - center) - dot)) * scale;
+            if (gradient - gradient) != 0.0 then
+              return Err("nonfinite softmax gradient");
+            fi
+            scratch[i] = gradient;
+          fi
+        done
+      fi
+    done
+    for int i = 0; i < output.size; i++ do
+      output[i] = scratch[i];
+    done
+    return Ok(true);
+  }
+end

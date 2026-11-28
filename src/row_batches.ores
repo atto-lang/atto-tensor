@@ -1,0 +1,183 @@
+// Pure Oreslang CPU tensor row-batch primitives for data/ML pipelines.
+// P0 storage remains List<float>, not verified contiguous Array<T> or zero-copy.
+// No allocations in output kernels. All guest-visible output mutations follow
+// shape/index/finite validation. Gradient scratch may change on failure;
+// the output buffer MUST retain its previous contents on failure.
+import class TensorF64 from "./tensor.ores";
+import module TensorOps from "./tensor.ores";
+
+define module RowBatches as
+  // Gather a specified row sequence from a [rows, columns] source.
+  // Indices may repeat: this is required for deterministic resampling.
+  // Result is [count(indices), columns] in input-index order.
+  pub fnc gather_rows_2d_f64_into(
+    borrow TensorF64 source,
+    borrow List<int> indices,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if output is source.values; do
+      return Err("gather output aliases source");
+    fi
+    if TensorOps.validate_tensor(rt borrow source).is_err(); do
+      return Err("invalid gather source tensor");
+    fi
+    if source.shape.size != 2; do
+      return Err("gather source must have rank 2");
+    fi
+
+    val int rows = source.shape[0];
+    val int columns = source.shape[1];
+    val int selected = indices.size;
+    val List<int> result_shape = arr[selected, columns];
+    if TensorOps.checked_numel(rt borrow result_shape, output.size).is_err(); do
+      return Err("gather output shape mismatch");
+    fi
+
+    // Preflight all indices before publishing even one output element.
+    for int index_offset = 0; index_offset < indices.size; index_offset++ do
+      val int index = indices[index_offset];
+      if index < 0 || index >= rows; do
+        return Err("gather row index out of bounds");
+      fi
+    done
+
+    // No output values exist when either dimension is zero. Still validate
+    // every index above, including invalid indices into zero-row sources.
+    // Avoid repeating the selected-row traversal for zero-column tensors.
+    if output.size == 0; do
+      return Ok(true);
+    fi
+
+    for int i = 0; i < selected; i++ do
+      val int source_row = indices[i];
+      for int column = 0; column < columns; column++ do
+        output[(i * columns) + column] =
+          source.values[(source_row * columns) + column];
+      done
+    done
+    return Ok(true);
+  }
+
+  // Contiguous mini-batch from a row-major source. No temporary index list.
+  // start==rows, count==0 is valid; count may not exceed rows-start.
+  pub fnc slice_rows_2d_f64_into(
+    borrow TensorF64 source,
+    int start,
+    int count,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if output is source.values; do
+      return Err("slice output aliases source");
+    fi
+    if TensorOps.validate_tensor(rt borrow source).is_err(); do
+      return Err("invalid slice source tensor");
+    fi
+    if source.shape.size != 2; do
+      return Err("slice source must have rank 2");
+    fi
+    val int rows = source.shape[0];
+    val int columns = source.shape[1];
+    if start < 0 || count < 0 || start > rows; do
+      return Err("invalid row slice bounds");
+    fi
+    // Subtract first to avoid overflow of start+count.
+    if count > rows - start; do
+      return Err("row slice extends beyond source");
+    fi
+    val List<int> result_shape = arr[count, columns];
+    if TensorOps.checked_numel(rt borrow result_shape, output.size).is_err(); do
+      return Err("row slice output shape mismatch");
+    fi
+    // Zero-extent slices have no values to copy. A shape like
+    // [2000000000, 0] with count=2000000000 is valid but must not
+    // spend billions of iterations in an empty inner column loop.
+    // Keep this after alias, source, row bounds, and output validation.
+    if output.size == 0; do
+      return Ok(true);
+    fi
+
+    for int i = 0; i < count; i++ do
+      for int column = 0; column < columns; column++ do
+        output[(i * columns) + column] =
+          source.values[((start + i) * columns) + column];
+      done
+    done
+    return Ok(true);
+  }
+
+  // Reverse-mode VJP of gather_rows:
+  // dInput[row, c] = sum_{j: indices[j] == row} dOutput[j, c].
+  //
+  // Repeated indices MUST add, not overwrite. Accumulation is deterministic in
+  // the supplied index order. Staged scratch is caller-owned and may be changed
+  // before an error; the public output remains unchanged on every error.
+  // This function does not mutate source tensor or actor state.
+  pub fnc gather_rows_vjp_f64_checked_into(
+    borrow TensorF64 upstream,
+    borrow List<int> indices,
+    borrow List<int> source_shape,
+    borrow mut List<float> scratch,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if scratch is output || scratch is upstream.values || output is upstream.values; do
+      return Err("gather VJP buffers must be disjoint");
+    fi
+    if TensorOps.validate_tensor(rt borrow upstream).is_err(); do
+      return Err("invalid gather upstream gradient");
+    fi
+    if upstream.shape.size != 2 || source_shape.size != 2; do
+      return Err("gather VJP requires rank-2 shapes");
+    fi
+
+    val int rows = source_shape[0];
+    val int columns = source_shape[1];
+    val int selected = indices.size;
+    if rows < 0 || columns < 0; do
+      return Err("negative original tensor extent");
+    fi
+    if upstream.shape[0] != selected || upstream.shape[1] != columns; do
+      return Err("gather upstream shape mismatch");
+    fi
+    val int n = output.size;
+    if scratch.size != n; do
+      return Err("gather VJP scratch length mismatch");
+    fi
+    if TensorOps.checked_numel(rt borrow source_shape, n).is_err(); do
+      return Err("gather original shape mismatch");
+    fi
+
+    for int index_offset = 0; index_offset < indices.size; index_offset++ do
+      val int index = indices[index_offset];
+      if index < 0 || index >= rows; do
+        return Err("gather VJP row index out of bounds");
+      fi
+    done
+
+    // Empty original gradients require no initialization or scatter-add.
+    // This comes AFTER both descriptors, scratch, alias and index checks.
+    if n == 0; do
+      return Ok(true);
+    fi
+
+    for int k = 0; k < n; k++ do
+      scratch[k] = 0.0;
+    done
+    for int i = 0; i < selected; i++ do
+      val int row = indices[i];
+      for int column = 0; column < columns; column++ do
+        val int destination = (row * columns) + column;
+        val float next = scratch[destination] +
+          upstream.values[(i * columns) + column];
+        if (next - next) != 0.0; do
+          return Err("nonfinite gather VJP accumulation");
+        fi
+        scratch[destination] = next;
+      done
+    done
+
+    for int k = 0; k < n; k++ do
+      output[k] = scratch[k];
+    done
+    return Ok(true);
+  }
+end

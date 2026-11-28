@@ -1,0 +1,131 @@
+// Reverse broadcasting primitive: collapse a dense upstream gradient to
+// an original operand shape. This is a CPU scalar reference kernel.
+// All publicly visible output writes occur only after scratch succeeds.
+import class TensorF64 from "./tensor.ores";
+import module TensorOps from "./tensor.ores";
+
+import module num from "core/num";
+
+define module TensorGradients as
+  // Shape validation for right-aligned reduction axes, including rank 0.
+  pub fnc validate_sum_to_shape(
+    borrow TensorF64 upstream,
+    borrow List<int> target_shape,
+    int target_length
+  ): Result<bool, String> {
+    if TensorOps.validate_tensor(rt borrow upstream).is_err(); do
+      return Err("invalid upstream tensor");
+    fi
+    return validate_reduction_shape(rt borrow upstream.shape, rt borrow target_shape, target_length);
+  }
+
+  fnc validate_reduction_shape(
+    borrow List<int> upstream_shape,
+    borrow List<int> target_shape,
+    int target_length
+  ): Result<bool, String> {
+    val int upstream_rank = upstream_shape.size;
+    val int target_rank = target_shape.size;
+    if target_rank > upstream_rank; do
+      return Err("target rank exceeds upstream rank");
+    fi
+    if TensorOps.checked_numel(rt borrow target_shape, target_length).is_err(); do
+      return Err("invalid target shape");
+    fi
+    for int axis = 0; axis < upstream_rank; axis++ do
+      val int target_axis = axis - (upstream_rank - target_rank);
+      let int target_extent = 1;
+      if target_axis >= 0; do
+        target_extent = target_shape[target_axis];
+      fi
+      val int original = upstream_shape[axis];
+      if target_extent != original && target_extent != 1; do
+        return Err("unbroadcastable target shape");
+      fi
+    done
+    return Ok(true);
+  }
+
+  // Assumes validated shapes. Never called for a zero-sized upstream.
+  fnc target_index(
+    borrow List<int> upstream_shape,
+    borrow List<int> target_shape,
+    int linear_position
+  ): int {
+    val int up_rank = upstream_shape.size;
+    val int target_rank = target_shape.size;
+    let int remaining = linear_position;
+    let int stride = 1;
+    let int index = 0;
+    for int axis = up_rank - 1; axis >= 0; axis-- do
+      val int dim = upstream_shape[axis];
+      val int coordinate = Integer.rem(remaining, dim);
+      remaining = num.checked_div(remaining, dim).unwrap();
+      val int out_axis = axis - (up_rank - target_rank);
+      if out_axis >= 0; do
+        val int output_dim = target_shape[out_axis];
+        if output_dim != 1; do
+          index = index + coordinate * stride;
+        fi
+        stride = stride * output_dim;
+      fi
+    done
+    return index;
+  }
+
+  pub fnc sum_to_shape_f64_checked_into(
+    borrow TensorF64 upstream,
+    borrow List<int> target_shape,
+    borrow mut List<float> scratch,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    return sum_values_to_shape_f64_checked_into(
+      rt borrow upstream.shape, rt borrow upstream.values, rt borrow target_shape,
+      rt mut borrow scratch, rt mut borrow output
+    );
+  }
+
+  // Accept a borrowed contiguous value buffer, such as a staged product,
+  // without moving it into a new TensorF64 owner.
+  pub fnc sum_values_to_shape_f64_checked_into(
+    borrow List<int> upstream_shape,
+    borrow List<float> upstream_values,
+    borrow List<int> target_shape,
+    borrow mut List<float> scratch,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if scratch is output || scratch is upstream_values || output is upstream_values; do
+      return Err("gradient reduction buffers must be disjoint");
+    fi
+    val int n = output.size;
+    if scratch.size != n; do
+      return Err("gradient scratch length mismatch");
+    fi
+    val int source_n = upstream_values.size;
+    if TensorOps.checked_numel(rt borrow upstream_shape, source_n).is_err() ||
+       validate_reduction_shape(rt borrow upstream_shape, rt borrow target_shape, n).is_err(); do
+      return Err("invalid gradient reduction");
+    fi
+    for int i = 0; i < source_n; i++ do
+      val float value = upstream_values[i];
+      if (value - value) != 0.0; do
+        return Err("invalid gradient reduction");
+      fi
+    done
+    for int j = 0; j < n; j++ do
+      scratch[j] = 0.0;
+    done
+    for int i = 0; i < source_n; i++ do
+      val int k = target_index(rt borrow upstream_shape, rt borrow target_shape, i);
+      val float next = scratch[k] + upstream_values[i];
+      if (next - next) != 0.0; do
+        return Err("nonfinite reduced gradient");
+      fi
+      scratch[k] = next;
+    done
+    for int j = 0; j < n; j++ do
+      output[j] = scratch[j];
+    done
+    return Ok(true);
+  }
+end

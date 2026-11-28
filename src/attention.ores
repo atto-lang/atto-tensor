@@ -1,0 +1,444 @@
+// CPU scaled dot-product attention over contiguous [..., sequence, features].
+import module num from "core/num";
+import class TensorF64 from "./tensor.ores";
+import module TensorOps from "./tensor.ores";
+import module Softmax from "./softmax.ores";
+
+define class AttentionShape as
+  pub val int queries;
+  pub val int keys;
+  pub val int depth;
+  pub val int channels;
+  pub val int query_rows;
+  pub val int score_count;
+  pub val int result_count;
+end
+
+define module Attention as
+  fnc validate_shapes(
+    borrow TensorF64 query,
+    borrow TensorF64 key,
+    borrow TensorF64 value
+  ): Result<AttentionShape, String> {
+    if TensorOps.validate_tensor(rt borrow query).is_err() ||
+       TensorOps.validate_tensor(rt borrow key).is_err() ||
+       TensorOps.validate_tensor(rt borrow value).is_err() then
+      return Err("attention requires finite valid tensors");
+    fi
+    val int rank = query.shape.size;
+    if rank < 2 || key.shape.size != rank || value.shape.size != rank then
+      return Err("attention requires matching ranks of at least two");
+    fi
+    val int sequence_axis = rank - 2;
+    val int feature_axis = rank - 1;
+    for int axis = 0; axis < sequence_axis; axis++ do
+      if query.shape[axis] != key.shape[axis] || key.shape[axis] != value.shape[axis] then
+        return Err("attention batch dimensions differ");
+      fi
+    done
+    val int queries = query.shape[sequence_axis];
+    val int keys = key.shape[sequence_axis];
+    val int depth = query.shape[feature_axis];
+    val int channels = value.shape[feature_axis];
+    if depth == 0 || depth != key.shape[feature_axis] || keys != value.shape[sequence_axis] then
+      return Err("attention key, query or value dimensions are incompatible");
+    fi
+
+    val int query_rows = num.checked_div(query.values.size, depth).unwrap();
+    if query_rows > 0 && keys == 0 then
+      return Err("attention requires a key for every query row");
+    fi
+    val Option<int> score_count = num.checked_mul(query_rows, keys);
+    val Option<int> result_count = num.checked_mul(query_rows, channels);
+    if score_count.is_none() || result_count.is_none() then
+      return Err("attention output or score shape exceeds the storage index range");
+    fi
+    return Ok(new AttentionShape(queries, keys, depth, channels, query_rows, score_count.unwrap(), result_count.unwrap()));
+  }
+
+  fnc aliases_input(
+    borrow List<float> buffer,
+    borrow TensorF64 query,
+    borrow TensorF64 key,
+    borrow TensorF64 value
+  ): bool {
+    return buffer is query.values || buffer is key.values || buffer is value.values;
+  }
+
+  // Normalize depth to [1, 4) with exact powers of two, where Newton's
+  // square-root iteration from 2 has converged to f64 after six steps.
+  fnc inverse_sqrt_depth(int depth): float {
+    // A nonempty tensor has depth bounded by the JVM list length.
+    let float normalized = Integer.toFloatExact(depth);
+    let float inverse_scale = 1.0;
+    while normalized >= 4.0 do
+      normalized = normalized * 0.25;
+      inverse_scale = inverse_scale * 0.5;
+    done
+    let float root = 2.0;
+    for int i = 0; i < 6; i++ do
+      root = 0.5 * (root + normalized / root);
+    done
+    return inverse_scale / root;
+  }
+
+  fnc compute_probabilities(
+    borrow TensorF64 query,
+    borrow TensorF64 key,
+    borrow AttentionShape shape,
+    bool causal,
+    borrow mut List<float> scores
+  ): Result<bool, String> {
+    val float scale = inverse_sqrt_depth(shape.depth);
+    val int key_batch_length = shape.keys * shape.depth;
+    let int query_in_batch = 0;
+    let int key_batch = 0;
+    for int row = 0; row < shape.query_rows; row++ do
+      val int q_base = row * shape.depth;
+      val int score_base = row * shape.keys;
+      for int k = 0; k < shape.keys; k++ do
+        let float dot = 0.0;
+        if !causal || k <= query_in_batch then
+          val int k_base = key_batch + k * shape.depth;
+          let float compensation = 0.0;
+          for int d = 0; d < shape.depth; d++ do
+            val float product = (query.values[q_base + d] * scale) * key.values[k_base + d];
+            val float term = product - compensation;
+            val float next = dot + term;
+            compensation = (next - dot) - term;
+            dot = next;
+          done
+          if (dot - dot) != 0.0 then
+            return Err("attention produced a nonfinite score");
+          fi
+        fi
+        scores[score_base + k] = dot;
+      done
+      query_in_batch = query_in_batch + 1;
+      if query_in_batch == shape.queries then
+        query_in_batch = 0;
+        key_batch = key_batch + key_batch_length;
+      fi
+    done
+    let int causal_query_count = 0;
+    if causal then
+      causal_query_count = shape.queries;
+    fi
+    return Softmax.normalize_attention_scores_f64(rt mut borrow scores, shape.keys, causal_query_count);
+  }
+
+  fnc weighted_value(
+    borrow List<float> scores,
+    int score_base,
+    int keys,
+    borrow List<float> values,
+    int value_base,
+    int channels
+  ): float {
+    let float scale = 0.0;
+    for int k = 0; k < keys; k++ do
+      if scores[score_base + k] != 0.0 then
+        val float value = values[value_base + k * channels];
+        if value > scale then
+          scale = value;
+        elif -value > scale then
+          scale = -value;
+        fi
+      fi
+    done
+    if scale == 0.0 then
+      return 0.0;
+    fi
+
+    let float sum = 0.0;
+    let float compensation = 0.0;
+    for int k = 0; k < keys; k++ do
+      val float weight = scores[score_base + k];
+      if weight != 0.0 then
+        val float term = weight * (values[value_base + k * channels] / scale) - compensation;
+        val float next = sum + term;
+        compensation = (next - sum) - term;
+        sum = next;
+      fi
+    done
+    // A weighted average is in [-scale, scale]. Correct tiny roundoff
+    // outside that interval before rescaling very large finite values.
+    if sum > 1.0 then
+      return scale;
+    fi
+    if sum < -1.0 then
+      return -scale;
+    fi
+    return sum * scale;
+  }
+
+  // Both scratch lists are caller-owned. The published output changes only
+  // after every score and result has been computed successfully.
+  pub fnc scaled_dot_product_f64_into(
+    borrow TensorF64 query,
+    borrow TensorF64 key,
+    borrow TensorF64 value,
+    bool causal,
+    borrow mut List<float> scores,
+    borrow mut List<float> result_scratch,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if scores is result_scratch || scores is output || result_scratch is output ||
+       aliases_input(rt borrow scores, rt borrow query, rt borrow key, rt borrow value) ||
+       aliases_input(rt borrow result_scratch, rt borrow query, rt borrow key, rt borrow value) ||
+       aliases_input(rt borrow output, rt borrow query, rt borrow key, rt borrow value) then
+      return Err("attention requires disjoint scratch and output");
+    fi
+    val Result<AttentionShape, String> admitted = validate_shapes(rt borrow query, rt borrow key, rt borrow value);
+    match admitted over
+      on Err(message) -> { return Err(message); }
+      on Ok(_) -> {}
+    end
+    val AttentionShape shape = admitted.unwrap();
+    if scores.size != shape.score_count || result_scratch.size != shape.result_count ||
+       output.size != shape.result_count then
+      return Err("attention scratch or output length mismatch");
+    fi
+    if shape.result_count == 0 then
+      return Ok(true);
+    fi
+    if compute_probabilities(rt borrow query, rt borrow key, rt borrow shape, causal, rt mut borrow scores).is_err() then
+      return Err("attention score computation failed");
+    fi
+
+    val int value_batch_length = shape.keys * shape.channels;
+    let int value_batch = 0;
+    let int query_in_batch = 0;
+    for int row = 0; row < shape.query_rows; row++ do
+      for int channel = 0; channel < shape.channels; channel++ do
+        result_scratch[row * shape.channels + channel] = weighted_value(
+          rt borrow scores, row * shape.keys, shape.keys,
+          rt borrow value.values, value_batch + channel, shape.channels
+        );
+      done
+      query_in_batch = query_in_batch + 1;
+      if query_in_batch == shape.queries then
+        query_in_batch = 0;
+        value_batch = value_batch + value_batch_length;
+      fi
+    done
+    for int i = 0; i < output.size; i++ do
+      output[i] = result_scratch[i];
+    done
+    return Ok(true);
+  }
+
+  // dP = dY V^T, then dS = P * (dP - sum(P * dP)) along each row.
+  fnc score_adjoint_row(
+    borrow TensorF64 value,
+    borrow TensorF64 upstream,
+    borrow AttentionShape shape,
+    int row,
+    int value_batch,
+    borrow List<float> probabilities,
+    borrow mut List<float> score_gradients
+  ): Result<bool, String> {
+    val int score_base = row * shape.keys;
+    val int upstream_base = row * shape.channels;
+    let float scale = 0.0;
+    let float anchor = 0.0;
+    for int k = 0; k < shape.keys; k++ do
+      let float d_probability = 0.0;
+      if probabilities[score_base + k] != 0.0 then
+        for int v = 0; v < shape.channels; v++ do
+          d_probability = d_probability + upstream.values[upstream_base + v] * value.values[value_batch + k * shape.channels + v];
+        done
+        if (d_probability - d_probability) != 0.0 then
+          return Err("nonfinite attention probability gradient");
+        fi
+        if d_probability > scale then
+          scale = d_probability;
+          anchor = d_probability;
+        elif -d_probability > scale then
+          scale = -d_probability;
+          anchor = d_probability;
+        fi
+      fi
+      score_gradients[score_base + k] = d_probability;
+    done
+    if scale == 0.0 then
+      return Ok(true);
+    fi
+    val float center = anchor / scale;
+    let float dot = 0.0;
+    let float compensation = 0.0;
+    for int k = 0; k < shape.keys; k++ do
+      val int i = score_base + k;
+      val float term = probabilities[i] * ((score_gradients[i] / scale) - center) - compensation;
+      val float next = dot + term;
+      compensation = (next - dot) - term;
+      dot = next;
+    done
+    for int k = 0; k < shape.keys; k++ do
+      val int i = score_base + k;
+      score_gradients[i] = (probabilities[i] * ((score_gradients[i] / scale - center) - dot)) * scale;
+    done
+    return Ok(true);
+  }
+
+  fnc stage_gradient(
+    borrow TensorF64 query,
+    borrow TensorF64 key,
+    borrow TensorF64 value,
+    borrow TensorF64 upstream,
+    borrow AttentionShape shape,
+    borrow List<float> probabilities,
+    borrow mut List<float> score_gradients,
+    borrow mut List<float> gradient_scratch
+  ): Result<bool, String> {
+    val float scale = inverse_sqrt_depth(shape.depth);
+    val int key_offset = query.values.size;
+    val int value_offset = key_offset + key.values.size;
+    val int key_batch_length = shape.keys * shape.depth;
+    val int value_batch_length = shape.keys * shape.channels;
+    let int query_in_batch = 0;
+    let int key_batch = 0;
+    let int value_batch = 0;
+    for int row = 0; row < shape.query_rows; row++ do
+      match score_adjoint_row(
+        rt borrow value, rt borrow upstream, rt borrow shape, row, value_batch,
+        rt borrow probabilities, rt mut borrow score_gradients
+      ) over
+        on Err(message) -> { return Err(message); }
+        on Ok(_) -> {}
+      end
+      val int q_base = row * shape.depth;
+      val int upstream_base = row * shape.channels;
+      for int k = 0; k < shape.keys; k++ do
+        val int score = row * shape.keys + k;
+        val float probability = probabilities[score];
+        if probability != 0.0 then
+          // dV = P^T dY. dQ = (dS K) / sqrt(d); dK = (dS^T Q) / sqrt(d).
+          val int v_base = value_offset + value_batch + k * shape.channels;
+          for int v = 0; v < shape.channels; v++ do
+            val float next = gradient_scratch[v_base + v] + probability * upstream.values[upstream_base + v];
+            if (next - next) != 0.0 then
+              return Err("nonfinite attention value gradient");
+            fi
+            gradient_scratch[v_base + v] = next;
+          done
+          val float d_scaled_score = score_gradients[score] * scale;
+          val int k_base = key_batch + k * shape.depth;
+          for int d = 0; d < shape.depth; d++ do
+            val int q_index = q_base + d;
+            val int k_index = key_offset + k_base + d;
+            val float next_q = gradient_scratch[q_index] + d_scaled_score * key.values[k_base + d];
+            val float next_k = gradient_scratch[k_index] + d_scaled_score * query.values[q_index];
+            if (next_q - next_q) != 0.0 || (next_k - next_k) != 0.0 then
+              return Err("nonfinite attention query or key gradient");
+            fi
+            gradient_scratch[q_index] = next_q;
+            gradient_scratch[k_index] = next_k;
+          done
+        fi
+      done
+      query_in_batch = query_in_batch + 1;
+      if query_in_batch == shape.queries then
+        query_in_batch = 0;
+        key_batch = key_batch + key_batch_length;
+        value_batch = value_batch + value_batch_length;
+      fi
+    done
+    return Ok(true);
+  }
+
+  // The gradient scratch concatenates dQ, dK and dV in that order.
+  // Recompute probabilities from the supplied inputs and publish all three
+  // adjoints together only after the full reverse pass has succeeded.
+  pub fnc scaled_dot_product_vjp_f64_checked_into(
+    borrow TensorF64 query,
+    borrow TensorF64 key,
+    borrow TensorF64 value,
+    borrow TensorF64 upstream,
+    bool causal,
+    borrow mut List<float> probabilities,
+    borrow mut List<float> score_gradients,
+    borrow mut List<float> gradient_scratch,
+    borrow mut List<float> query_gradient,
+    borrow mut List<float> key_gradient,
+    borrow mut List<float> value_gradient
+  ): Result<bool, String> {
+    if probabilities is score_gradients || probabilities is gradient_scratch ||
+       probabilities is query_gradient || probabilities is key_gradient || probabilities is value_gradient ||
+       score_gradients is gradient_scratch || score_gradients is query_gradient ||
+       score_gradients is key_gradient || score_gradients is value_gradient ||
+       gradient_scratch is query_gradient || gradient_scratch is key_gradient || gradient_scratch is value_gradient ||
+       query_gradient is key_gradient || query_gradient is value_gradient || key_gradient is value_gradient then
+      return Err("attention VJP requires disjoint scratch and outputs");
+    fi
+    if probabilities is upstream.values || score_gradients is upstream.values || gradient_scratch is upstream.values ||
+       query_gradient is upstream.values || key_gradient is upstream.values || value_gradient is upstream.values ||
+       aliases_input(rt borrow probabilities, rt borrow query, rt borrow key, rt borrow value) ||
+       aliases_input(rt borrow score_gradients, rt borrow query, rt borrow key, rt borrow value) ||
+       aliases_input(rt borrow gradient_scratch, rt borrow query, rt borrow key, rt borrow value) ||
+       aliases_input(rt borrow query_gradient, rt borrow query, rt borrow key, rt borrow value) ||
+       aliases_input(rt borrow key_gradient, rt borrow query, rt borrow key, rt borrow value) ||
+       aliases_input(rt borrow value_gradient, rt borrow query, rt borrow key, rt borrow value) then
+      return Err("attention VJP buffers alias inputs");
+    fi
+
+    val Result<AttentionShape, String> admitted = validate_shapes(rt borrow query, rt borrow key, rt borrow value);
+    match admitted over
+      on Err(message) -> { return Err(message); }
+      on Ok(_) -> {}
+    end
+    val AttentionShape shape = admitted.unwrap();
+    if TensorOps.validate_tensor(rt borrow upstream).is_err() || upstream.shape.size != query.shape.size then
+      return Err("invalid attention output gradient");
+    fi
+    val int feature_axis = query.shape.size - 1;
+    for int axis = 0; axis < feature_axis; axis++ do
+      if upstream.shape[axis] != query.shape[axis] then
+        return Err("attention output gradient shape mismatch");
+      fi
+    done
+    if upstream.shape[feature_axis] != shape.channels || upstream.values.size != shape.result_count then
+      return Err("attention output gradient channel mismatch");
+    fi
+    if probabilities.size != shape.score_count || score_gradients.size != shape.score_count ||
+       query_gradient.size != query.values.size || key_gradient.size != key.values.size ||
+       value_gradient.size != value.values.size then
+      return Err("attention VJP output or score scratch length mismatch");
+    fi
+    val Option<int> value_offset = num.checked_add(query_gradient.size, key_gradient.size);
+    if value_offset.is_none() then
+      return Err("attention VJP gradient scratch length overflow");
+    fi
+    val Option<int> scratch_count = num.checked_add(value_offset.unwrap(), value_gradient.size);
+    if scratch_count.is_none() || scratch_count.unwrap() != gradient_scratch.size then
+      return Err("attention VJP gradient scratch length mismatch");
+    fi
+
+    for int i = 0; i < gradient_scratch.size; i++ do
+      gradient_scratch[i] = 0.0;
+    done
+    if shape.result_count > 0 then
+      match compute_probabilities(rt borrow query, rt borrow key, rt borrow shape, causal, rt mut borrow probabilities) over
+        on Err(message) -> { return Err(message); }
+        on Ok(_) -> {}
+      end
+      match stage_gradient(
+        rt borrow query, rt borrow key, rt borrow value, rt borrow upstream, rt borrow shape,
+        rt borrow probabilities, rt mut borrow score_gradients, rt mut borrow gradient_scratch
+      ) over
+        on Err(message) -> { return Err(message); }
+        on Ok(_) -> {}
+      end
+    fi
+    for int i = 0; i < query_gradient.size; i++ do
+      query_gradient[i] = gradient_scratch[i];
+    done
+    for int i = 0; i < key_gradient.size; i++ do
+      key_gradient[i] = gradient_scratch[query_gradient.size + i];
+    done
+    for int i = 0; i < value_gradient.size; i++ do
+      value_gradient[i] = gradient_scratch[value_offset.unwrap() + i];
+    done
+    return Ok(true);
+  }
+end

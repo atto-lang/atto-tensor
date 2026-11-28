@@ -1,0 +1,85 @@
+import module Assert from "std/assert";
+import class TensorF64 from "../src/tensor.ores";
+import module Softmax from "../src/softmax.ores";
+
+fnc near(float actual, float expected, float tolerance): bool {
+  return actual - expected <= tolerance && expected - actual <= tolerance;
+}
+
+pub routine main(): void {
+  // A large additive shift and a subtraction that underflows to -Infinity.
+  val TensorF64 logits = new TensorF64(arr[1, 2, 3], arr[1000.0, 1001.0, 1002.0, -1.0e308, 1.0e308, 0.0]);
+  val List<float> probabilities = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(Softmax.softmax_last_axis_f64_into(rt borrow logits, rt mut borrow probabilities).is_ok());
+  Assert.true_throws(near(probabilities[0], 0.09003057317038046, 1.0e-15));
+  Assert.true_throws(near(probabilities[1], 0.24472847105479764, 1.0e-15));
+  Assert.true_throws(near(probabilities[2], 0.6652409557748218, 1.0e-15));
+  Assert.equal_throws(probabilities[3], 0.0);
+  Assert.equal_throws(probabilities[4], 1.0);
+  Assert.equal_throws(probabilities[5], 0.0);
+
+  val TensorF64 tiny = new TensorF64(arr[4], arr[0.0, -708.0, -745.0, -746.0]);
+  val List<float> tiny_weights = arr[0.0, 0.0, 0.0, 9.0];
+  Assert.true_throws(Softmax.softmax_last_axis_f64_into(rt borrow tiny, rt mut borrow tiny_weights).is_ok());
+  Assert.equal_throws(tiny_weights[0], 1.0);
+  Assert.true_throws(near(tiny_weights[1] / 3.307553003638408e-308, 1.0, 3.0e-15));
+  Assert.equal_throws(tiny_weights[2], 5.0e-324);
+  Assert.equal_throws(tiny_weights[3], 0.0);
+
+  val TensorF64 upstream = new TensorF64(arr[1, 2, 3], arr[2.0, -1.0, 4.0, -1.0e308, 1.0e308, 0.0]);
+  val List<float> scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> gradient = arr[9.0, 9.0, 9.0, 9.0, 9.0, 9.0];
+  Assert.true_throws(Softmax.softmax_last_axis_vjp_f64_checked_into(
+    rt borrow logits, rt borrow upstream, rt mut borrow scratch, rt mut borrow gradient
+  ).is_ok());
+  Assert.true_throws(near(gradient[0], -0.05368491552911495, 1.0e-14));
+  Assert.true_throws(near(gradient[1], -0.8801161435095449, 1.0e-14));
+  Assert.true_throws(near(gradient[2], 0.9338010590386601, 1.0e-14));
+  Assert.equal_throws(gradient[3], 0.0);
+  Assert.equal_throws(gradient[4], 0.0);
+  Assert.equal_throws(gradient[5], 0.0);
+
+  val TensorF64 wide_vjp_logits = new TensorF64(arr[2], arr[0.0, 0.0]);
+  val TensorF64 wide_vjp_inputs = new TensorF64(arr[2], arr[1.0e308, -1.0e308]);
+  val List<float> wide_vjp_scratch = arr[0.0, 0.0];
+  val List<float> wide_vjp_output = arr[0.0, 0.0];
+  Assert.true_throws(Softmax.softmax_last_axis_vjp_f64_checked_into(
+    rt borrow wide_vjp_logits, rt borrow wide_vjp_inputs, rt mut borrow wide_vjp_scratch, rt mut borrow wide_vjp_output
+  ).is_ok());
+  Assert.equal_throws(wide_vjp_output[0], 5.0e307);
+  Assert.equal_throws(wide_vjp_output[1], -5.0e307);
+
+  // Underflowed weights cannot influence the scaling of supported adjoints.
+  val TensorF64 small_vjp_logits = new TensorF64(arr[3], arr[0.0, 0.0, -1000.0]);
+  val TensorF64 small_vjp_inputs = new TensorF64(arr[3], arr[1.0e-308, -1.0e-308, 1.0e308]);
+  val List<float> small_vjp_scratch = arr[0.0, 0.0, 0.0];
+  val List<float> small_vjp_output = arr[0.0, 0.0, 0.0];
+  Assert.true_throws(Softmax.softmax_last_axis_vjp_f64_checked_into(
+    rt borrow small_vjp_logits, rt borrow small_vjp_inputs, rt mut borrow small_vjp_scratch, rt mut borrow small_vjp_output
+  ).is_ok());
+  Assert.equal_throws(small_vjp_output[0], 5.0e-309);
+  Assert.equal_throws(small_vjp_output[1], -5.0e-309);
+  Assert.equal_throws(small_vjp_output[2], 0.0);
+
+  val TensorF64 empty = new TensorF64(arr[2000000000, 0], arr[]);
+  val List<float> empty_output = arr[];
+  Assert.true_throws(Softmax.softmax_last_axis_f64_into(rt borrow empty, rt mut borrow empty_output).is_ok());
+  val TensorF64 scalar = new TensorF64(arr[], arr[1.0]);
+  val List<float> sentinel = arr[89.0];
+  Assert.true_throws(Softmax.softmax_last_axis_f64_into(rt borrow scalar, rt mut borrow sentinel).is_err());
+  Assert.true_throws(Softmax.softmax_last_axis_f64_into(rt borrow logits, rt mut borrow sentinel).is_err());
+  val float invalid = 1.0e308 * 2.0;
+  val TensorF64 nonfinite = new TensorF64(arr[1], arr[invalid]);
+  Assert.true_throws(Softmax.softmax_last_axis_f64_into(rt borrow nonfinite, rt mut borrow sentinel).is_err());
+  Assert.equal_throws(sentinel[0], 89.0);
+  val TensorF64 mismatched = new TensorF64(arr[2, 3], arr[2.0, -1.0, 4.0, 0.0, 1.0, 0.0]);
+  Assert.true_throws(Softmax.softmax_last_axis_vjp_f64_checked_into(
+    rt borrow logits, rt borrow mismatched, rt mut borrow scratch, rt mut borrow gradient
+  ).is_err());
+  Assert.true_throws(near(gradient[0], -0.05368491552911495, 1.0e-14));
+  Assert.true_throws(Softmax.softmax_last_axis_vjp_f64_checked_into(
+    rt borrow logits, rt borrow upstream, rt mut borrow scratch, rt mut borrow scratch
+  ).is_err());
+
+  stdio.println("ATTO_TENSOR_SOFTMAX_SMOKE_PASS");
+}
